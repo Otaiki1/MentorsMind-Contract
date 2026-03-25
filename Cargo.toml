@@ -2,13 +2,9 @@
 members = [
     "escrow",
     "contracts/verification",
-    "contracts/mnt-token",
-    "contracts/treasury",
-    "contracts/staking",
+    "contracts/oracle",
+    "contracts/timelock",
     "tests",
-    "contracts/referral",
-    # "multisig",
-    # "payment-router",
 ]
 
 [workspace.package]
