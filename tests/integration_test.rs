@@ -477,8 +477,8 @@ fn test_multiple_sessions_tracked_independently() {
     // Session 1 still unaffected
     assert_eq!(f.escrow.get_escrow(&eid1).status, EscrowStatus::Active);
 
-    // Resolve session 3 (50/50)
-    f.escrow.resolve_dispute(&eid3, &50u32);
+    // Resolve session 3 (mentor-favored resolution)
+    f.escrow.resolve_dispute(&eid3, &true);
     assert_eq!(f.escrow.get_escrow(&eid3).status, EscrowStatus::Resolved);
 
     // Refund session 1
