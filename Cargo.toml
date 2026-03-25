@@ -3,6 +3,8 @@ members = [
     "escrow",
     "contracts/verification",
     "contracts/mnt-token",
+    "contracts/treasury",
+    "contracts/staking",
     "tests",
     "contracts/referral",
     # "multisig",
