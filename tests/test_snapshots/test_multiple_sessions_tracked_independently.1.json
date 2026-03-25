@@ -324,7 +324,7 @@
                   "u64": 3
                 },
                 {
-                  "u32": 50
+                  "bool": true
                 }
               ]
             }
@@ -989,6 +989,14 @@
                     },
                     {
                       "key": {
+                        "symbol": "dest_asset"
+                      },
+                      "val": {
+                        "address": "CDLDVFKHEZ2RVB3NG4UQA4VPD3TSHV6XMHXMHP2BSGCJ2IIWVTOHGDSG"
+                      }
+                    },
+                    {
+                      "key": {
                         "symbol": "dispute_reason"
                       },
                       "val": {
@@ -1043,10 +1051,29 @@
                     },
                     {
                       "key": {
+                        "symbol": "quoted_token_amount"
+                      },
+                      "val": {
+                        "i128": {
+                          "hi": 0,
+                          "lo": 1000
+                        }
+                      }
+                    },
+                    {
+                      "key": {
                         "symbol": "resolved_at"
                       },
                       "val": {
                         "u64": 0
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "send_asset"
+                      },
+                      "val": {
+                        "address": "CDLDVFKHEZ2RVB3NG4UQA4VPD3TSHV6XMHXMHP2BSGCJ2IIWVTOHGDSG"
                       }
                     },
                     {
@@ -1083,6 +1110,17 @@
                       },
                       "val": {
                         "address": "CDLDVFKHEZ2RVB3NG4UQA4VPD3TSHV6XMHXMHP2BSGCJ2IIWVTOHGDSG"
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "usd_amount"
+                      },
+                      "val": {
+                        "i128": {
+                          "hi": 0,
+                          "lo": 0
+                        }
                       }
                     }
                   ]
@@ -1138,7 +1176,7 @@
                       "val": {
                         "i128": {
                           "hi": 0,
-                          "lo": 2000
+                          "lo": 0
                         }
                       }
                     },
@@ -1156,6 +1194,14 @@
                       },
                       "val": {
                         "u64": 10000
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "dest_asset"
+                      },
+                      "val": {
+                        "address": "CDLDVFKHEZ2RVB3NG4UQA4VPD3TSHV6XMHXMHP2BSGCJ2IIWVTOHGDSG"
                       }
                     },
                     {
@@ -1214,10 +1260,29 @@
                     },
                     {
                       "key": {
+                        "symbol": "quoted_token_amount"
+                      },
+                      "val": {
+                        "i128": {
+                          "hi": 0,
+                          "lo": 2000
+                        }
+                      }
+                    },
+                    {
+                      "key": {
                         "symbol": "resolved_at"
                       },
                       "val": {
                         "u64": 0
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "send_asset"
+                      },
+                      "val": {
+                        "address": "CDLDVFKHEZ2RVB3NG4UQA4VPD3TSHV6XMHXMHP2BSGCJ2IIWVTOHGDSG"
                       }
                     },
                     {
@@ -1254,6 +1319,17 @@
                       },
                       "val": {
                         "address": "CDLDVFKHEZ2RVB3NG4UQA4VPD3TSHV6XMHXMHP2BSGCJ2IIWVTOHGDSG"
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "usd_amount"
+                      },
+                      "val": {
+                        "i128": {
+                          "hi": 0,
+                          "lo": 0
+                        }
                       }
                     }
                   ]
@@ -1309,7 +1385,7 @@
                       "val": {
                         "i128": {
                           "hi": 0,
-                          "lo": 3000
+                          "lo": 0
                         }
                       }
                     },
@@ -1327,6 +1403,14 @@
                       },
                       "val": {
                         "u64": 10000
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "dest_asset"
+                      },
+                      "val": {
+                        "address": "CDLDVFKHEZ2RVB3NG4UQA4VPD3TSHV6XMHXMHP2BSGCJ2IIWVTOHGDSG"
                       }
                     },
                     {
@@ -1368,7 +1452,7 @@
                       "val": {
                         "i128": {
                           "hi": 0,
-                          "lo": 1500
+                          "lo": 2850
                         }
                       }
                     },
@@ -1379,7 +1463,18 @@
                       "val": {
                         "i128": {
                           "hi": 0,
-                          "lo": 1500
+                          "lo": 150
+                        }
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "quoted_token_amount"
+                      },
+                      "val": {
+                        "i128": {
+                          "hi": 0,
+                          "lo": 3000
                         }
                       }
                     },
@@ -1389,6 +1484,14 @@
                       },
                       "val": {
                         "u64": 10000
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "send_asset"
+                      },
+                      "val": {
+                        "address": "CDLDVFKHEZ2RVB3NG4UQA4VPD3TSHV6XMHXMHP2BSGCJ2IIWVTOHGDSG"
                       }
                     },
                     {
@@ -1425,6 +1528,17 @@
                       },
                       "val": {
                         "address": "CDLDVFKHEZ2RVB3NG4UQA4VPD3TSHV6XMHXMHP2BSGCJ2IIWVTOHGDSG"
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "usd_amount"
+                      },
+                      "val": {
+                        "i128": {
+                          "hi": 0,
+                          "lo": 0
+                        }
                       }
                     }
                   ]
@@ -1698,7 +1812,7 @@
                       "val": {
                         "i128": {
                           "hi": 0,
-                          "lo": 3500
+                          "lo": 4850
                         }
                       }
                     },
@@ -1771,7 +1885,80 @@
                       "val": {
                         "i128": {
                           "hi": 0,
-                          "lo": 996500
+                          "lo": 995000
+                        }
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "authorized"
+                      },
+                      "val": {
+                        "bool": true
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "clawback"
+                      },
+                      "val": {
+                        "bool": false
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            "ext": "v0"
+          },
+          518400
+        ]
+      ],
+      [
+        {
+          "contract_data": {
+            "contract": "CDLDVFKHEZ2RVB3NG4UQA4VPD3TSHV6XMHXMHP2BSGCJ2IIWVTOHGDSG",
+            "key": {
+              "vec": [
+                {
+                  "symbol": "Balance"
+                },
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                }
+              ]
+            },
+            "durability": "persistent"
+          }
+        },
+        [
+          {
+            "last_modified_ledger_seq": 0,
+            "data": {
+              "contract_data": {
+                "ext": "v0",
+                "contract": "CDLDVFKHEZ2RVB3NG4UQA4VPD3TSHV6XMHXMHP2BSGCJ2IIWVTOHGDSG",
+                "key": {
+                  "vec": [
+                    {
+                      "symbol": "Balance"
+                    },
+                    {
+                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                    }
+                  ]
+                },
+                "durability": "persistent",
+                "val": {
+                  "map": [
+                    {
+                      "key": {
+                        "symbol": "amount"
+                      },
+                      "val": {
+                        "i128": {
+                          "hi": 0,
+                          "lo": 150
                         }
                       }
                     },
@@ -2377,22 +2564,40 @@
           "v0": {
             "topics": [
               {
-                "symbol": "verified"
+                "symbol": "Verification"
+              },
+              {
+                "symbol": "Verified"
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
               }
             ],
             "data": {
-              "vec": [
+              "map": [
                 {
-                  "bytes": "abababababababababababababababababababababababababababababababab"
+                  "key": {
+                    "symbol": "credential_hash"
+                  },
+                  "val": {
+                    "bytes": "abababababababababababababababababababababababababababababababab"
+                  }
                 },
                 {
-                  "u64": 13600
+                  "key": {
+                    "symbol": "expiry"
+                  },
+                  "val": {
+                    "u64": 13600
+                  }
                 },
                 {
-                  "u64": 10000
+                  "key": {
+                    "symbol": "verified_at"
+                  },
+                  "val": {
+                    "u64": 10000
+                  }
                 }
               ]
             }
@@ -2644,13 +2849,7 @@
                   }
                 },
                 {
-                  "symbol": "SES1"
-                },
-                {
                   "address": "CDLDVFKHEZ2RVB3NG4UQA4VPD3TSHV6XMHXMHP2BSGCJ2IIWVTOHGDSG"
-                },
-                {
-                  "u64": 10000
                 }
               ]
             }
@@ -2904,13 +3103,7 @@
                   }
                 },
                 {
-                  "symbol": "SES2"
-                },
-                {
                   "address": "CDLDVFKHEZ2RVB3NG4UQA4VPD3TSHV6XMHXMHP2BSGCJ2IIWVTOHGDSG"
-                },
-                {
-                  "u64": 10000
                 }
               ]
             }
@@ -3164,13 +3357,7 @@
                   }
                 },
                 {
-                  "symbol": "SES3"
-                },
-                {
                   "address": "CDLDVFKHEZ2RVB3NG4UQA4VPD3TSHV6XMHXMHP2BSGCJ2IIWVTOHGDSG"
-                },
-                {
-                  "u64": 10000
                 }
               ]
             }
@@ -3392,9 +3579,6 @@
             "data": {
               "vec": [
                 {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
-                },
-                {
                   "i128": {
                     "hi": 0,
                     "lo": 2000
@@ -3411,9 +3595,6 @@
                     "hi": 0,
                     "lo": 0
                   }
-                },
-                {
-                  "address": "CDLDVFKHEZ2RVB3NG4UQA4VPD3TSHV6XMHXMHP2BSGCJ2IIWVTOHGDSG"
                 }
               ]
             }
@@ -3515,6 +3696,14 @@
                 },
                 {
                   "key": {
+                    "symbol": "dest_asset"
+                  },
+                  "val": {
+                    "address": "CDLDVFKHEZ2RVB3NG4UQA4VPD3TSHV6XMHXMHP2BSGCJ2IIWVTOHGDSG"
+                  }
+                },
+                {
+                  "key": {
                     "symbol": "dispute_reason"
                   },
                   "val": {
@@ -3569,10 +3758,29 @@
                 },
                 {
                   "key": {
+                    "symbol": "quoted_token_amount"
+                  },
+                  "val": {
+                    "i128": {
+                      "hi": 0,
+                      "lo": 1000
+                    }
+                  }
+                },
+                {
+                  "key": {
                     "symbol": "resolved_at"
                   },
                   "val": {
                     "u64": 0
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "send_asset"
+                  },
+                  "val": {
+                    "address": "CDLDVFKHEZ2RVB3NG4UQA4VPD3TSHV6XMHXMHP2BSGCJ2IIWVTOHGDSG"
                   }
                 },
                 {
@@ -3609,6 +3817,17 @@
                   },
                   "val": {
                     "address": "CDLDVFKHEZ2RVB3NG4UQA4VPD3TSHV6XMHXMHP2BSGCJ2IIWVTOHGDSG"
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "usd_amount"
+                  },
+                  "val": {
+                    "i128": {
+                      "hi": 0,
+                      "lo": 0
+                    }
                   }
                 }
               ]
@@ -3668,7 +3887,7 @@
                   "val": {
                     "i128": {
                       "hi": 0,
-                      "lo": 2000
+                      "lo": 0
                     }
                   }
                 },
@@ -3686,6 +3905,14 @@
                   },
                   "val": {
                     "u64": 10000
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "dest_asset"
+                  },
+                  "val": {
+                    "address": "CDLDVFKHEZ2RVB3NG4UQA4VPD3TSHV6XMHXMHP2BSGCJ2IIWVTOHGDSG"
                   }
                 },
                 {
@@ -3744,10 +3971,29 @@
                 },
                 {
                   "key": {
+                    "symbol": "quoted_token_amount"
+                  },
+                  "val": {
+                    "i128": {
+                      "hi": 0,
+                      "lo": 2000
+                    }
+                  }
+                },
+                {
+                  "key": {
                     "symbol": "resolved_at"
                   },
                   "val": {
                     "u64": 0
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "send_asset"
+                  },
+                  "val": {
+                    "address": "CDLDVFKHEZ2RVB3NG4UQA4VPD3TSHV6XMHXMHP2BSGCJ2IIWVTOHGDSG"
                   }
                 },
                 {
@@ -3784,6 +4030,17 @@
                   },
                   "val": {
                     "address": "CDLDVFKHEZ2RVB3NG4UQA4VPD3TSHV6XMHXMHP2BSGCJ2IIWVTOHGDSG"
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "usd_amount"
+                  },
+                  "val": {
+                    "i128": {
+                      "hi": 0,
+                      "lo": 0
+                    }
                   }
                 }
               ]
@@ -3865,6 +4122,14 @@
                 },
                 {
                   "key": {
+                    "symbol": "dest_asset"
+                  },
+                  "val": {
+                    "address": "CDLDVFKHEZ2RVB3NG4UQA4VPD3TSHV6XMHXMHP2BSGCJ2IIWVTOHGDSG"
+                  }
+                },
+                {
+                  "key": {
                     "symbol": "dispute_reason"
                   },
                   "val": {
@@ -3919,10 +4184,29 @@
                 },
                 {
                   "key": {
+                    "symbol": "quoted_token_amount"
+                  },
+                  "val": {
+                    "i128": {
+                      "hi": 0,
+                      "lo": 3000
+                    }
+                  }
+                },
+                {
+                  "key": {
                     "symbol": "resolved_at"
                   },
                   "val": {
                     "u64": 0
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "send_asset"
+                  },
+                  "val": {
+                    "address": "CDLDVFKHEZ2RVB3NG4UQA4VPD3TSHV6XMHXMHP2BSGCJ2IIWVTOHGDSG"
                   }
                 },
                 {
@@ -3959,6 +4243,17 @@
                   },
                   "val": {
                     "address": "CDLDVFKHEZ2RVB3NG4UQA4VPD3TSHV6XMHXMHP2BSGCJ2IIWVTOHGDSG"
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "usd_amount"
+                  },
+                  "val": {
+                    "i128": {
+                      "hi": 0,
+                      "lo": 0
+                    }
                   }
                 }
               ]
@@ -4013,27 +4308,17 @@
           "v0": {
             "topics": [
               {
-                "symbol": "disp_opnd"
+                "symbol": "Escrow"
+              },
+              {
+                "symbol": "disp_opn"
               },
               {
                 "u64": 3
               }
             ],
             "data": {
-              "vec": [
-                {
-                  "u64": 3
-                },
-                {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
-                },
-                {
-                  "symbol": "NO_SHOW"
-                },
-                {
-                  "address": "CDLDVFKHEZ2RVB3NG4UQA4VPD3TSHV6XMHXMHP2BSGCJ2IIWVTOHGDSG"
-                }
-              ]
+              "symbol": "NO_SHOW"
             }
           }
         }
@@ -4133,6 +4418,14 @@
                 },
                 {
                   "key": {
+                    "symbol": "dest_asset"
+                  },
+                  "val": {
+                    "address": "CDLDVFKHEZ2RVB3NG4UQA4VPD3TSHV6XMHXMHP2BSGCJ2IIWVTOHGDSG"
+                  }
+                },
+                {
+                  "key": {
                     "symbol": "dispute_reason"
                   },
                   "val": {
@@ -4187,10 +4480,29 @@
                 },
                 {
                   "key": {
+                    "symbol": "quoted_token_amount"
+                  },
+                  "val": {
+                    "i128": {
+                      "hi": 0,
+                      "lo": 3000
+                    }
+                  }
+                },
+                {
+                  "key": {
                     "symbol": "resolved_at"
                   },
                   "val": {
                     "u64": 0
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "send_asset"
+                  },
+                  "val": {
+                    "address": "CDLDVFKHEZ2RVB3NG4UQA4VPD3TSHV6XMHXMHP2BSGCJ2IIWVTOHGDSG"
                   }
                 },
                 {
@@ -4227,6 +4539,17 @@
                   },
                   "val": {
                     "address": "CDLDVFKHEZ2RVB3NG4UQA4VPD3TSHV6XMHXMHP2BSGCJ2IIWVTOHGDSG"
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "usd_amount"
+                  },
+                  "val": {
+                    "i128": {
+                      "hi": 0,
+                      "lo": 0
+                    }
                   }
                 }
               ]
@@ -4308,6 +4631,14 @@
                 },
                 {
                   "key": {
+                    "symbol": "dest_asset"
+                  },
+                  "val": {
+                    "address": "CDLDVFKHEZ2RVB3NG4UQA4VPD3TSHV6XMHXMHP2BSGCJ2IIWVTOHGDSG"
+                  }
+                },
+                {
+                  "key": {
                     "symbol": "dispute_reason"
                   },
                   "val": {
@@ -4362,10 +4693,29 @@
                 },
                 {
                   "key": {
+                    "symbol": "quoted_token_amount"
+                  },
+                  "val": {
+                    "i128": {
+                      "hi": 0,
+                      "lo": 1000
+                    }
+                  }
+                },
+                {
+                  "key": {
                     "symbol": "resolved_at"
                   },
                   "val": {
                     "u64": 0
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "send_asset"
+                  },
+                  "val": {
+                    "address": "CDLDVFKHEZ2RVB3NG4UQA4VPD3TSHV6XMHXMHP2BSGCJ2IIWVTOHGDSG"
                   }
                 },
                 {
@@ -4403,6 +4753,17 @@
                   "val": {
                     "address": "CDLDVFKHEZ2RVB3NG4UQA4VPD3TSHV6XMHXMHP2BSGCJ2IIWVTOHGDSG"
                   }
+                },
+                {
+                  "key": {
+                    "symbol": "usd_amount"
+                  },
+                  "val": {
+                    "i128": {
+                      "hi": 0,
+                      "lo": 0
+                    }
+                  }
                 }
               ]
             }
@@ -4435,10 +4796,102 @@
                   "u64": 3
                 },
                 {
-                  "u32": 50
+                  "bool": true
                 }
               ]
             }
+          }
+        }
+      },
+      "failed_call": false
+    },
+    {
+      "event": {
+        "ext": "v0",
+        "contract_id": "0000000000000000000000000000000000000000000000000000000000000006",
+        "type_": "diagnostic",
+        "body": {
+          "v0": {
+            "topics": [
+              {
+                "symbol": "fn_call"
+              },
+              {
+                "bytes": "d63a954726751a876d37290072af1ee723d7d761eec3bf4191849d2116acdc73"
+              },
+              {
+                "symbol": "transfer"
+              }
+            ],
+            "data": {
+              "vec": [
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4"
+                },
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                },
+                {
+                  "i128": {
+                    "hi": 0,
+                    "lo": 150
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      "failed_call": false
+    },
+    {
+      "event": {
+        "ext": "v0",
+        "contract_id": "d63a954726751a876d37290072af1ee723d7d761eec3bf4191849d2116acdc73",
+        "type_": "contract",
+        "body": {
+          "v0": {
+            "topics": [
+              {
+                "symbol": "transfer"
+              },
+              {
+                "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4"
+              },
+              {
+                "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+              },
+              {
+                "string": "aaa:GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAL7NV"
+              }
+            ],
+            "data": {
+              "i128": {
+                "hi": 0,
+                "lo": 150
+              }
+            }
+          }
+        }
+      },
+      "failed_call": false
+    },
+    {
+      "event": {
+        "ext": "v0",
+        "contract_id": "d63a954726751a876d37290072af1ee723d7d761eec3bf4191849d2116acdc73",
+        "type_": "diagnostic",
+        "body": {
+          "v0": {
+            "topics": [
+              {
+                "symbol": "fn_return"
+              },
+              {
+                "symbol": "transfer"
+              }
+            ],
+            "data": "void"
           }
         }
       },
@@ -4473,7 +4926,7 @@
                 {
                   "i128": {
                     "hi": 0,
-                    "lo": 1500
+                    "lo": 2850
                   }
                 }
               ]
@@ -4507,7 +4960,7 @@
             "data": {
               "i128": {
                 "hi": 0,
-                "lo": 1500
+                "lo": 2850
               }
             }
           }
@@ -4531,146 +4984,6 @@
               }
             ],
             "data": "void"
-          }
-        }
-      },
-      "failed_call": false
-    },
-    {
-      "event": {
-        "ext": "v0",
-        "contract_id": "0000000000000000000000000000000000000000000000000000000000000006",
-        "type_": "diagnostic",
-        "body": {
-          "v0": {
-            "topics": [
-              {
-                "symbol": "fn_call"
-              },
-              {
-                "bytes": "d63a954726751a876d37290072af1ee723d7d761eec3bf4191849d2116acdc73"
-              },
-              {
-                "symbol": "transfer"
-              }
-            ],
-            "data": {
-              "vec": [
-                {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4"
-                },
-                {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
-                },
-                {
-                  "i128": {
-                    "hi": 0,
-                    "lo": 1500
-                  }
-                }
-              ]
-            }
-          }
-        }
-      },
-      "failed_call": false
-    },
-    {
-      "event": {
-        "ext": "v0",
-        "contract_id": "d63a954726751a876d37290072af1ee723d7d761eec3bf4191849d2116acdc73",
-        "type_": "contract",
-        "body": {
-          "v0": {
-            "topics": [
-              {
-                "symbol": "transfer"
-              },
-              {
-                "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4"
-              },
-              {
-                "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
-              },
-              {
-                "string": "aaa:GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAL7NV"
-              }
-            ],
-            "data": {
-              "i128": {
-                "hi": 0,
-                "lo": 1500
-              }
-            }
-          }
-        }
-      },
-      "failed_call": false
-    },
-    {
-      "event": {
-        "ext": "v0",
-        "contract_id": "d63a954726751a876d37290072af1ee723d7d761eec3bf4191849d2116acdc73",
-        "type_": "diagnostic",
-        "body": {
-          "v0": {
-            "topics": [
-              {
-                "symbol": "fn_return"
-              },
-              {
-                "symbol": "transfer"
-              }
-            ],
-            "data": "void"
-          }
-        }
-      },
-      "failed_call": false
-    },
-    {
-      "event": {
-        "ext": "v0",
-        "contract_id": "0000000000000000000000000000000000000000000000000000000000000006",
-        "type_": "contract",
-        "body": {
-          "v0": {
-            "topics": [
-              {
-                "symbol": "disp_res"
-              },
-              {
-                "u64": 3
-              }
-            ],
-            "data": {
-              "vec": [
-                {
-                  "u64": 3
-                },
-                {
-                  "u32": 50
-                },
-                {
-                  "i128": {
-                    "hi": 0,
-                    "lo": 1500
-                  }
-                },
-                {
-                  "i128": {
-                    "hi": 0,
-                    "lo": 1500
-                  }
-                },
-                {
-                  "address": "CDLDVFKHEZ2RVB3NG4UQA4VPD3TSHV6XMHXMHP2BSGCJ2IIWVTOHGDSG"
-                },
-                {
-                  "u64": 10000
-                }
-              ]
-            }
           }
         }
       },
@@ -4747,7 +5060,7 @@
                   "val": {
                     "i128": {
                       "hi": 0,
-                      "lo": 3000
+                      "lo": 0
                     }
                   }
                 },
@@ -4765,6 +5078,14 @@
                   },
                   "val": {
                     "u64": 10000
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "dest_asset"
+                  },
+                  "val": {
+                    "address": "CDLDVFKHEZ2RVB3NG4UQA4VPD3TSHV6XMHXMHP2BSGCJ2IIWVTOHGDSG"
                   }
                 },
                 {
@@ -4806,7 +5127,7 @@
                   "val": {
                     "i128": {
                       "hi": 0,
-                      "lo": 1500
+                      "lo": 2850
                     }
                   }
                 },
@@ -4817,7 +5138,18 @@
                   "val": {
                     "i128": {
                       "hi": 0,
-                      "lo": 1500
+                      "lo": 150
+                    }
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "quoted_token_amount"
+                  },
+                  "val": {
+                    "i128": {
+                      "hi": 0,
+                      "lo": 3000
                     }
                   }
                 },
@@ -4827,6 +5159,14 @@
                   },
                   "val": {
                     "u64": 10000
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "send_asset"
+                  },
+                  "val": {
+                    "address": "CDLDVFKHEZ2RVB3NG4UQA4VPD3TSHV6XMHXMHP2BSGCJ2IIWVTOHGDSG"
                   }
                 },
                 {
@@ -4863,6 +5203,17 @@
                   },
                   "val": {
                     "address": "CDLDVFKHEZ2RVB3NG4UQA4VPD3TSHV6XMHXMHP2BSGCJ2IIWVTOHGDSG"
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "usd_amount"
+                  },
+                  "val": {
+                    "i128": {
+                      "hi": 0,
+                      "lo": 0
+                    }
                   }
                 }
               ]
@@ -4999,27 +5350,17 @@
           "v0": {
             "topics": [
               {
-                "symbol": "refunded"
+                "symbol": "Escrow"
+              },
+              {
+                "symbol": "refund"
               },
               {
                 "u64": 1
               }
             ],
             "data": {
-              "vec": [
-                {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
-                },
-                {
-                  "i128": {
-                    "hi": 0,
-                    "lo": 1000
-                  }
-                },
-                {
-                  "address": "CDLDVFKHEZ2RVB3NG4UQA4VPD3TSHV6XMHXMHP2BSGCJ2IIWVTOHGDSG"
-                }
-              ]
+              "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
             }
           }
         }
@@ -5119,6 +5460,14 @@
                 },
                 {
                   "key": {
+                    "symbol": "dest_asset"
+                  },
+                  "val": {
+                    "address": "CDLDVFKHEZ2RVB3NG4UQA4VPD3TSHV6XMHXMHP2BSGCJ2IIWVTOHGDSG"
+                  }
+                },
+                {
+                  "key": {
                     "symbol": "dispute_reason"
                   },
                   "val": {
@@ -5173,10 +5522,29 @@
                 },
                 {
                   "key": {
+                    "symbol": "quoted_token_amount"
+                  },
+                  "val": {
+                    "i128": {
+                      "hi": 0,
+                      "lo": 1000
+                    }
+                  }
+                },
+                {
+                  "key": {
                     "symbol": "resolved_at"
                   },
                   "val": {
                     "u64": 0
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "send_asset"
+                  },
+                  "val": {
+                    "address": "CDLDVFKHEZ2RVB3NG4UQA4VPD3TSHV6XMHXMHP2BSGCJ2IIWVTOHGDSG"
                   }
                 },
                 {
@@ -5213,6 +5581,17 @@
                   },
                   "val": {
                     "address": "CDLDVFKHEZ2RVB3NG4UQA4VPD3TSHV6XMHXMHP2BSGCJ2IIWVTOHGDSG"
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "usd_amount"
+                  },
+                  "val": {
+                    "i128": {
+                      "hi": 0,
+                      "lo": 0
+                    }
                   }
                 }
               ]

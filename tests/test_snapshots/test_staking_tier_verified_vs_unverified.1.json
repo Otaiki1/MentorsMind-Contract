@@ -951,7 +951,7 @@
                       "val": {
                         "i128": {
                           "hi": 0,
-                          "lo": 10000
+                          "lo": 0
                         }
                       }
                     },
@@ -969,6 +969,14 @@
                       },
                       "val": {
                         "u64": 10000
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "dest_asset"
+                      },
+                      "val": {
+                        "address": "CACMVW2KK4H5FZDFF2AUCAKQTEJMZZWJUIZF23XMRVYQBSXYLHZ6BKWN"
                       }
                     },
                     {
@@ -1027,10 +1035,29 @@
                     },
                     {
                       "key": {
+                        "symbol": "quoted_token_amount"
+                      },
+                      "val": {
+                        "i128": {
+                          "hi": 0,
+                          "lo": 10000
+                        }
+                      }
+                    },
+                    {
+                      "key": {
                         "symbol": "resolved_at"
                       },
                       "val": {
                         "u64": 0
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "send_asset"
+                      },
+                      "val": {
+                        "address": "CACMVW2KK4H5FZDFF2AUCAKQTEJMZZWJUIZF23XMRVYQBSXYLHZ6BKWN"
                       }
                     },
                     {
@@ -1067,6 +1094,17 @@
                       },
                       "val": {
                         "address": "CACMVW2KK4H5FZDFF2AUCAKQTEJMZZWJUIZF23XMRVYQBSXYLHZ6BKWN"
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "usd_amount"
+                      },
+                      "val": {
+                        "i128": {
+                          "hi": 0,
+                          "lo": 0
+                        }
                       }
                     }
                   ]
@@ -1354,7 +1392,7 @@
                       "val": {
                         "i128": {
                           "hi": 0,
-                          "lo": 10000
+                          "lo": 0
                         }
                       }
                     },
@@ -1372,6 +1410,14 @@
                       },
                       "val": {
                         "u64": 10000
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "dest_asset"
+                      },
+                      "val": {
+                        "address": "CACMVW2KK4H5FZDFF2AUCAKQTEJMZZWJUIZF23XMRVYQBSXYLHZ6BKWN"
                       }
                     },
                     {
@@ -1430,10 +1476,29 @@
                     },
                     {
                       "key": {
+                        "symbol": "quoted_token_amount"
+                      },
+                      "val": {
+                        "i128": {
+                          "hi": 0,
+                          "lo": 10000
+                        }
+                      }
+                    },
+                    {
+                      "key": {
                         "symbol": "resolved_at"
                       },
                       "val": {
                         "u64": 0
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "send_asset"
+                      },
+                      "val": {
+                        "address": "CACMVW2KK4H5FZDFF2AUCAKQTEJMZZWJUIZF23XMRVYQBSXYLHZ6BKWN"
                       }
                     },
                     {
@@ -1470,6 +1535,17 @@
                       },
                       "val": {
                         "address": "CACMVW2KK4H5FZDFF2AUCAKQTEJMZZWJUIZF23XMRVYQBSXYLHZ6BKWN"
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "usd_amount"
+                      },
+                      "val": {
+                        "i128": {
+                          "hi": 0,
+                          "lo": 0
+                        }
                       }
                     }
                   ]
@@ -2388,22 +2464,40 @@
           "v0": {
             "topics": [
               {
-                "symbol": "verified"
+                "symbol": "Verification"
+              },
+              {
+                "symbol": "Verified"
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
               }
             ],
             "data": {
-              "vec": [
+              "map": [
                 {
-                  "bytes": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+                  "key": {
+                    "symbol": "credential_hash"
+                  },
+                  "val": {
+                    "bytes": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+                  }
                 },
                 {
-                  "u64": 17200
+                  "key": {
+                    "symbol": "expiry"
+                  },
+                  "val": {
+                    "u64": 17200
+                  }
                 },
                 {
-                  "u64": 10000
+                  "key": {
+                    "symbol": "verified_at"
+                  },
+                  "val": {
+                    "u64": 10000
+                  }
                 }
               ]
             }
@@ -2789,13 +2883,7 @@
                   }
                 },
                 {
-                  "symbol": "G1"
-                },
-                {
                   "address": "CACMVW2KK4H5FZDFF2AUCAKQTEJMZZWJUIZF23XMRVYQBSXYLHZ6BKWN"
-                },
-                {
-                  "u64": 10000
                 }
               ]
             }
@@ -3166,9 +3254,6 @@
             "data": {
               "vec": [
                 {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
-                },
-                {
                   "i128": {
                     "hi": 0,
                     "lo": 10000
@@ -3185,9 +3270,6 @@
                     "hi": 0,
                     "lo": 300
                   }
-                },
-                {
-                  "address": "CACMVW2KK4H5FZDFF2AUCAKQTEJMZZWJUIZF23XMRVYQBSXYLHZ6BKWN"
                 }
               ]
             }
@@ -3592,13 +3674,7 @@
                   }
                 },
                 {
-                  "symbol": "S1"
-                },
-                {
                   "address": "CACMVW2KK4H5FZDFF2AUCAKQTEJMZZWJUIZF23XMRVYQBSXYLHZ6BKWN"
-                },
-                {
-                  "u64": 10000
                 }
               ]
             }
@@ -3969,9 +4045,6 @@
             "data": {
               "vec": [
                 {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
-                },
-                {
                   "i128": {
                     "hi": 0,
                     "lo": 10000
@@ -3988,9 +4061,6 @@
                     "hi": 0,
                     "lo": 500
                   }
-                },
-                {
-                  "address": "CACMVW2KK4H5FZDFF2AUCAKQTEJMZZWJUIZF23XMRVYQBSXYLHZ6BKWN"
                 }
               ]
             }
