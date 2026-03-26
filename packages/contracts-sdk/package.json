@@ -4,10 +4,17 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "vitest run"
+    "test": "vitest run",
+    "generate": "npm run generate:escrow && npm run generate:reputation && npm run generate:session_registry && npm run generate:token && npm run generate:staking",
+    "generate:escrow": "npx --yes @stellar/stellar-cli contract bindings typescript --wasm ../../escrow/target/wasm32-unknown-unknown/release/mentorminds_escrow.wasm --output-dir ./src/generated/escrow --overwrite",
+    "generate:reputation": "npx --yes @stellar/stellar-cli contract bindings typescript --wasm ../../contracts/verification/target/wasm32-unknown-unknown/release/mentorminds_verification.wasm --output-dir ./src/generated/reputation --overwrite",
+    "generate:session_registry": "npx --yes @stellar/stellar-cli contract bindings typescript --wasm ../../contracts/session_nft/target/wasm32-unknown-unknown/release/mentorminds_session_nft.wasm --output-dir ./src/generated/session_registry --overwrite",
+    "generate:token": "npx --yes @stellar/stellar-cli contract bindings typescript --wasm ../../contracts/mnt-token/target/wasm32-unknown-unknown/release/mentorminds_mnt_token.wasm --output-dir ./src/generated/token --overwrite",
+    "generate:staking": "npx --yes @stellar/stellar-cli contract bindings typescript --wasm ../../contracts/staking/target/wasm32-unknown-unknown/release/mentorminds_staking.wasm --output-dir ./src/generated/staking --overwrite",
+    "build": "npm run generate && tsc"
   },
   "dependencies": {
-    "stellar-sdk": "^10.4.0"
+    "@stellar/stellar-sdk": "^12.0.0"
   },
   "devDependencies": {
     "typescript": "^5.0.0",
