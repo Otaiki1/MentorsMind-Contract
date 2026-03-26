@@ -250,10 +250,10 @@ impl EscrowContract {
 
     /// Update the platform fee — admin only, capped at 1 000 bps (10%).
     /// Update the fee basis points (admin only).
-    /// 
+    ///
     /// Auth: Only the admin can update fees.
     /// The admin address is retrieved from persistent storage.
-    /// 
+    ///
     /// Panics if:
     /// - Contract is not initialized
     /// - Caller is not the admin
@@ -377,10 +377,10 @@ impl EscrowContract {
     }
 
     /// Update the treasury address — admin only.
-    /// 
+    ///
     /// Auth: Only the admin can update the treasury address.
     /// The admin address is retrieved from persistent storage.
-    /// 
+    ///
     /// Panics if:
     /// - Contract is not initialized
     /// - Caller is not the admin
@@ -403,10 +403,10 @@ impl EscrowContract {
     }
 
     /// Add or remove an approved token (admin only).
-    /// 
+    ///
     /// Auth: Only the admin can manage approved tokens.
     /// The admin address is retrieved from persistent storage.
-    /// 
+    ///
     /// Panics if:
     /// - Contract is not initialized
     /// - Caller is not the admin
@@ -492,10 +492,10 @@ impl EscrowContract {
     /// fee to the treasury, and transfers the remainder to the mentor.
     /// Both amounts are stored on the escrow record and emitted in the event.
     /// Release funds to the mentor.
-    /// 
+    ///
     /// Auth: Only the learner or admin can release funds.
     /// The caller must provide valid authorization.
-    /// 
+    ///
     /// Panics if:
     /// - Escrow does not exist
     /// - Escrow is not in Active status  
@@ -711,10 +711,10 @@ impl EscrowContract {
     /// - Escrow is not `Active`.
     /// - Caller is neither mentor nor learner.
     /// Dispute an active escrow.
-    /// 
+    ///
     /// Auth: Only the mentor or learner can dispute their escrow.
     /// The caller must provide valid authorization.
-    /// 
+    ///
     /// Panics if:
     /// - Escrow does not exist
     /// - Escrow is not in Active status
@@ -779,10 +779,10 @@ impl EscrowContract {
     /// - Escrow status is not `Disputed`.
     /// - `mentor_pct` > 100.
     /// Resolve a disputed escrow by splitting funds (admin only).
-    /// 
+    ///
     /// Auth: Only the admin can resolve disputes.
     /// The admin address is retrieved from persistent storage.
-    /// 
+    ///
     /// Panics if:
     /// - Contract is not initialized
     /// - Caller is not the admin
@@ -866,10 +866,10 @@ impl EscrowContract {
     /// `Released`, `Refunded`, or `Resolved`.
     /// Transfers `escrow.amount` tokens from contract → learner.
     /// Refund an escrow to the learner (admin only).
-    /// 
+    ///
     /// Auth: Only the admin can issue refunds.
     /// The admin address is retrieved from persistent storage.
-    /// 
+    ///
     /// Panics if:
     /// - Contract is not initialized
     /// - Caller is not the admin
@@ -1316,19 +1316,30 @@ mod test {
             panic!("Token not approved");
         }
 
-        fn client(&self) -> EscrowContractClient { EscrowContractClient::new(&self.env, &self.contract_id) }
-        fn token(&self)  -> TokenClient          { TokenClient::new(&self.env, &self.token_address) }
-        fn sac(&self)    -> StellarAssetClient   { StellarAssetClient::new(&self.env, &self.token_address) }
+        fn client(&self) -> EscrowContractClient {
+            EscrowContractClient::new(&self.env, &self.contract_id)
+        }
+        fn token(&self) -> TokenClient {
+            TokenClient::new(&self.env, &self.token_address)
+        }
+        fn sac(&self) -> StellarAssetClient {
+            StellarAssetClient::new(&self.env, &self.token_address)
+        }
 
         fn create_escrow_at(&self, amount: i128, session_end_time: u64) -> u64 {
             self.client().create_escrow(
-                &self.mentor, &self.learner, &amount,
-                &symbol_short!("S1"), &self.token_address, &session_end_time,
+                &self.mentor,
+                &self.learner,
+                &amount,
+                &symbol_short!("S1"),
+                &self.token_address,
+                &session_end_time,
             )
         }
 
         fn open_dispute(&self, escrow_id: u64) {
-            self.client().dispute(&self.learner, &escrow_id, &symbol_short!("NO_SHOW"));
+            self.client()
+                .dispute(&self.learner, &escrow_id, &symbol_short!("NO_SHOW"));
         }
         env.storage().persistent().set(&session_key, &true);
         let mut count: u64 = env.storage().persistent().get(&ESCROW_COUNT).unwrap_or(0);
@@ -1403,7 +1414,7 @@ mod test {
         env.mock_all_auths();
         let contract_id = env.register_contract(None, EscrowContract);
         let client = EscrowContractClient::new(&env, &contract_id);
-        let admin    = Address::generate(&env);
+        let admin = Address::generate(&env);
         let treasury = Address::generate(&env);
         let approved: Vec<Address> = Vec::new(&env);
         client.initialize(&admin, &treasury, &500u32, &approved, &0u64);
@@ -1419,7 +1430,7 @@ mod test {
         env.mock_all_auths();
         let contract_id = env.register_contract(None, EscrowContract);
         let client = EscrowContractClient::new(&env, &contract_id);
-        let admin    = Address::generate(&env);
+        let admin = Address::generate(&env);
         let treasury = Address::generate(&env);
         let approved: Vec<Address> = Vec::new(&env);
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -1505,8 +1516,12 @@ mod test {
         let bad_token = Address::generate(&f.env);
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             f.client().create_escrow(
-                &f.mentor, &f.learner, &500,
-                &symbol_short!("S1"), &bad_token, &0u64,
+                &f.mentor,
+                &f.learner,
+                &500,
+                &symbol_short!("S1"),
+                &bad_token,
+                &0u64,
             );
         }));
         assert!(result.is_err(), "unapproved token must panic");
@@ -1530,10 +1545,10 @@ mod test {
         let f = TestFixture::setup_with_fee(500);
         let token = f.token();
         let id = f.create_escrow_at(1_000, 0);
-        let mentor_before   = token.balance(&f.mentor);
+        let mentor_before = token.balance(&f.mentor);
         let treasury_before = token.balance(&f.treasury);
         f.client().release_funds(&f.learner, &id);
-        assert_eq!(token.balance(&f.mentor),   mentor_before   + 950);
+        assert_eq!(token.balance(&f.mentor), mentor_before + 950);
         assert_eq!(token.balance(&f.treasury), treasury_before + 50);
         assert_eq!(token.balance(&f.contract_id), 0);
         let e = f.client().get_escrow(&id);
@@ -1603,7 +1618,8 @@ mod test {
     fn test_dispute_by_mentor() {
         let f = TestFixture::setup();
         let id = f.create_escrow_at(1_000, 0);
-        f.client().dispute(&f.mentor, &id, &symbol_short!("NO_SHOW"));
+        f.client()
+            .dispute(&f.mentor, &id, &symbol_short!("NO_SHOW"));
         let e = f.client().get_escrow(&id);
         assert_eq!(e.status, EscrowStatus::Disputed);
         assert_eq!(e.dispute_reason, symbol_short!("NO_SHOW"));
@@ -1613,7 +1629,8 @@ mod test {
     fn test_dispute_by_learner() {
         let f = TestFixture::setup();
         let id = f.create_escrow_at(1_000, 0);
-        f.client().dispute(&f.learner, &id, &symbol_short!("BAD_SVC"));
+        f.client()
+            .dispute(&f.learner, &id, &symbol_short!("BAD_SVC"));
         let e = f.client().get_escrow(&id);
         assert_eq!(e.status, EscrowStatus::Disputed);
         assert_eq!(e.dispute_reason, symbol_short!("BAD_SVC"));
@@ -1650,11 +1667,11 @@ mod test {
         let f = TestFixture::setup_with_fee(0);
         let token = f.token();
         let id = setup_disputed(&f);
-        let mentor_before  = token.balance(&f.mentor);
+        let mentor_before = token.balance(&f.mentor);
         let learner_before = token.balance(&f.learner);
         f.client().resolve_dispute(&id, &100u32);
-        assert_eq!(token.balance(&f.mentor),      mentor_before  + 1_000);
-        assert_eq!(token.balance(&f.learner),     learner_before);
+        assert_eq!(token.balance(&f.mentor), mentor_before + 1_000);
+        assert_eq!(token.balance(&f.learner), learner_before);
         assert_eq!(token.balance(&f.contract_id), 0);
         let e = f.client().get_escrow(&id);
         assert_eq!(e.status, EscrowStatus::Resolved);
@@ -1668,11 +1685,11 @@ mod test {
         let f = TestFixture::setup_with_fee(0);
         let token = f.token();
         let id = setup_disputed(&f);
-        let mentor_before  = token.balance(&f.mentor);
+        let mentor_before = token.balance(&f.mentor);
         let learner_before = token.balance(&f.learner);
         f.client().resolve_dispute(&id, &50u32);
-        assert_eq!(token.balance(&f.mentor),      mentor_before  + 500);
-        assert_eq!(token.balance(&f.learner),     learner_before + 500);
+        assert_eq!(token.balance(&f.mentor), mentor_before + 500);
+        assert_eq!(token.balance(&f.learner), learner_before + 500);
         assert_eq!(token.balance(&f.contract_id), 0);
         let e = f.client().get_escrow(&id);
         assert_eq!(e.status, EscrowStatus::Resolved);
@@ -1685,11 +1702,11 @@ mod test {
         let f = TestFixture::setup_with_fee(0);
         let token = f.token();
         let id = setup_disputed(&f);
-        let mentor_before  = token.balance(&f.mentor);
+        let mentor_before = token.balance(&f.mentor);
         let learner_before = token.balance(&f.learner);
         f.client().resolve_dispute(&id, &0u32);
-        assert_eq!(token.balance(&f.mentor),      mentor_before);
-        assert_eq!(token.balance(&f.learner),     learner_before + 1_000);
+        assert_eq!(token.balance(&f.mentor), mentor_before);
+        assert_eq!(token.balance(&f.learner), learner_before + 1_000);
         assert_eq!(token.balance(&f.contract_id), 0);
         let e = f.client().get_escrow(&id);
         assert_eq!(e.net_amount, 0);
@@ -1742,10 +1759,10 @@ mod test {
         let f = TestFixture::setup_with_fee(0);
         let token = f.token();
         let id = setup_disputed(&f);
-        let mentor_before  = token.balance(&f.mentor);
+        let mentor_before = token.balance(&f.mentor);
         let learner_before = token.balance(&f.learner);
         f.client().resolve_dispute(&id, &33u32);
-        let m = token.balance(&f.mentor)  - mentor_before;
+        let m = token.balance(&f.mentor) - mentor_before;
         let l = token.balance(&f.learner) - learner_before;
         assert_eq!(m, 330);
         assert_eq!(l, 670);
@@ -1773,7 +1790,7 @@ mod test {
         let id = f.create_escrow_at(1_000, 0);
         let learner_before = token.balance(&f.learner);
         f.client().refund(&id);
-        assert_eq!(token.balance(&f.learner),     learner_before + 1_000);
+        assert_eq!(token.balance(&f.learner), learner_before + 1_000);
         assert_eq!(token.balance(&f.contract_id), 0);
         assert_eq!(f.client().get_escrow(&id).status, EscrowStatus::Refunded);
     }
@@ -1844,11 +1861,11 @@ mod test {
         let now = f.env.ledger().timestamp();
         let id = f.create_escrow_at(1_000, now);
         advance_time(&f.env, 3_600 + 1);
-        let mentor_before   = token.balance(&f.mentor);
+        let mentor_before = token.balance(&f.mentor);
         let treasury_before = token.balance(&f.treasury);
         f.client().try_auto_release(&id);
-        assert_eq!(token.balance(&f.mentor),      mentor_before   + 950);
-        assert_eq!(token.balance(&f.treasury),    treasury_before + 50);
+        assert_eq!(token.balance(&f.mentor), mentor_before + 950);
+        assert_eq!(token.balance(&f.treasury), treasury_before + 50);
         assert_eq!(token.balance(&f.contract_id), 0);
         let e = f.client().get_escrow(&id);
         assert_eq!(e.status, EscrowStatus::Released);
@@ -1922,10 +1939,10 @@ mod test {
         // 5% fee; 3 sessions of 1_000 each → 50 fee + 950 net per session
         let f = TestFixture::setup_with_fee(500);
         let client = f.client();
-        let token  = f.token();
+        let token = f.token();
 
-        let learner_start  = token.balance(&f.learner);
-        let mentor_start   = token.balance(&f.mentor);
+        let learner_start = token.balance(&f.learner);
+        let mentor_start = token.balance(&f.mentor);
         let treasury_start = token.balance(&f.treasury);
 
         // --- Create all 3 escrows ---
@@ -1934,27 +1951,27 @@ mod test {
         let id3 = f.create_escrow_at(1_000, 0);
 
         // Learner has paid 3_000 into escrow
-        assert_eq!(token.balance(&f.learner),     learner_start - 3_000);
+        assert_eq!(token.balance(&f.learner), learner_start - 3_000);
         assert_eq!(token.balance(&f.contract_id), 3_000);
 
         // --- Release session 1 ---
         client.release_funds(&f.learner, &id1);
-        assert_eq!(token.balance(&f.mentor),      mentor_start   + 950);
-        assert_eq!(token.balance(&f.treasury),    treasury_start + 50);
+        assert_eq!(token.balance(&f.mentor), mentor_start + 950);
+        assert_eq!(token.balance(&f.treasury), treasury_start + 50);
         assert_eq!(token.balance(&f.contract_id), 2_000);
         assert_eq!(client.get_escrow(&id1).status, EscrowStatus::Released);
 
         // --- Release session 2 ---
         client.release_funds(&f.learner, &id2);
-        assert_eq!(token.balance(&f.mentor),      mentor_start   + 1_900);
-        assert_eq!(token.balance(&f.treasury),    treasury_start + 100);
+        assert_eq!(token.balance(&f.mentor), mentor_start + 1_900);
+        assert_eq!(token.balance(&f.treasury), treasury_start + 100);
         assert_eq!(token.balance(&f.contract_id), 1_000);
         assert_eq!(client.get_escrow(&id2).status, EscrowStatus::Released);
 
         // --- Release session 3 ---
         client.release_funds(&f.learner, &id3);
-        assert_eq!(token.balance(&f.mentor),      mentor_start   + 2_850);
-        assert_eq!(token.balance(&f.treasury),    treasury_start + 150);
+        assert_eq!(token.balance(&f.mentor), mentor_start + 2_850);
+        assert_eq!(token.balance(&f.treasury), treasury_start + 150);
         assert_eq!(token.balance(&f.contract_id), 0);
         assert_eq!(client.get_escrow(&id3).status, EscrowStatus::Released);
 
@@ -1974,10 +1991,10 @@ mod test {
         let treasury_before = token.balance(&f.treasury);
         f.client().release_funds(&f.learner, &id);
         assert_eq!(token.balance(&f.treasury), treasury_before); // no fee
-        assert_eq!(token.balance(&f.mentor),   1_000);
+        assert_eq!(token.balance(&f.mentor), 1_000);
         let e = f.client().get_escrow(&id);
         assert_eq!(e.platform_fee, 0);
-        assert_eq!(e.net_amount,   1_000);
+        assert_eq!(e.net_amount, 1_000);
     }
 
     #[test]
@@ -1988,10 +2005,10 @@ mod test {
         let treasury_before = token.balance(&f.treasury);
         f.client().release_funds(&f.learner, &id);
         assert_eq!(token.balance(&f.treasury), treasury_before + 50);
-        assert_eq!(token.balance(&f.mentor),   950);
+        assert_eq!(token.balance(&f.mentor), 950);
         let e = f.client().get_escrow(&id);
         assert_eq!(e.platform_fee, 50);
-        assert_eq!(e.net_amount,   950);
+        assert_eq!(e.net_amount, 950);
     }
 
     #[test]
@@ -2002,10 +2019,10 @@ mod test {
         let treasury_before = token.balance(&f.treasury);
         f.client().release_funds(&f.learner, &id);
         assert_eq!(token.balance(&f.treasury), treasury_before + 200);
-        assert_eq!(token.balance(&f.mentor),   1_800);
+        assert_eq!(token.balance(&f.mentor), 1_800);
         let e = f.client().get_escrow(&id);
         assert_eq!(e.platform_fee, 200);
-        assert_eq!(e.net_amount,   1_800);
+        assert_eq!(e.net_amount, 1_800);
     }
 
     #[test]
@@ -2016,7 +2033,7 @@ mod test {
         f.client().release_funds(&f.learner, &id);
         let e = f.client().get_escrow(&id);
         assert_eq!(e.platform_fee, 0);
-        assert_eq!(e.net_amount,   1);
+        assert_eq!(e.net_amount, 1);
     }
 
     #[test]
@@ -2030,7 +2047,7 @@ mod test {
         advance_time(&f.env, 3_600 + 1);
         f.client().try_auto_release(&id);
         assert_eq!(token.balance(&f.treasury), treasury_before + 50);
-        assert_eq!(token.balance(&f.mentor),   950);
+        assert_eq!(token.balance(&f.mentor), 950);
     }
 
     // -----------------------------------------------------------------------
@@ -2044,13 +2061,13 @@ mod test {
         let learner_start = token.balance(&f.learner);
 
         let id = f.create_escrow_at(1_000, 0);
-        assert_eq!(token.balance(&f.learner),     learner_start - 1_000);
+        assert_eq!(token.balance(&f.learner), learner_start - 1_000);
         assert_eq!(token.balance(&f.contract_id), 1_000);
 
         f.client().refund(&id);
-        assert_eq!(token.balance(&f.learner),     learner_start); // fully restored
+        assert_eq!(token.balance(&f.learner), learner_start); // fully restored
         assert_eq!(token.balance(&f.contract_id), 0);
-        assert_eq!(token.balance(&f.treasury),    0); // no fee on refund
+        assert_eq!(token.balance(&f.treasury), 0); // no fee on refund
     }
 
     #[test]
@@ -2058,7 +2075,7 @@ mod test {
         let f = TestFixture::setup_with_fee(0);
         let token = f.token();
         let learner_start = token.balance(&f.learner);
-        let mentor_start  = token.balance(&f.mentor);
+        let mentor_start = token.balance(&f.mentor);
 
         let id = f.create_escrow_at(1_000, 0);
         assert_eq!(token.balance(&f.contract_id), 1_000);
@@ -2067,8 +2084,8 @@ mod test {
         assert_eq!(token.balance(&f.contract_id), 1_000); // still held
 
         f.client().resolve_dispute(&id, &75u32); // 750 mentor, 250 learner
-        assert_eq!(token.balance(&f.mentor),      mentor_start  + 750);
-        assert_eq!(token.balance(&f.learner),     learner_start - 1_000 + 250);
+        assert_eq!(token.balance(&f.mentor), mentor_start + 750);
+        assert_eq!(token.balance(&f.learner), learner_start - 1_000 + 250);
         assert_eq!(token.balance(&f.contract_id), 0);
     }
 
@@ -2101,7 +2118,7 @@ mod test {
         let id = f.create_escrow_at(1_000, 0);
         f.client().release_funds(&f.learner, &id);
         assert_eq!(token.balance(&new_treasury), 50);
-        assert_eq!(token.balance(&f.treasury),   0);
+        assert_eq!(token.balance(&f.treasury), 0);
     }
 
     // -----------------------------------------------------------------------

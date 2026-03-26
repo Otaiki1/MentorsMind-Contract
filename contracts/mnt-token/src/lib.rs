@@ -1,9 +1,9 @@
 #![no_std]
 
+use soroban_sdk::token::TokenInterface;
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, symbol_short, Address, Env, String, Symbol, IntoVal,
 };
-use soroban_sdk::token::TokenInterface;
 use soroban_token_sdk::metadata::TokenMetadata;
 
 #[contracterror]
@@ -82,10 +82,10 @@ pub struct MNTToken;
 #[contractimpl]
 impl MNTToken {
     /// Initialize the token contract with an admin.
-    /// 
+    ///
     /// Auth: No authorization required for initialization.
     /// Can only be called once.
-    /// 
+    ///
     /// Panics if:
     /// - Contract is already initialized
     pub fn initialize(env: Env, admin: Address) {
@@ -99,15 +99,19 @@ impl MNTToken {
             name: String::from_str(&env, "MentorMinds Token"),
             symbol: String::from_str(&env, "MNT"),
         };
-        env.storage().persistent().set(&DataKey::Metadata, &metadata);
-        env.storage().persistent().set(&DataKey::TotalSupply, &0i128);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Metadata, &metadata);
+        env.storage()
+            .persistent()
+            .set(&DataKey::TotalSupply, &0i128);
     }
 
     /// Mint new tokens (admin only).
-    /// 
+    ///
     /// Auth: Only the admin can mint tokens.
     /// The admin address is retrieved from persistent storage.
-    /// 
+    ///
     /// Panics if:
     /// - Contract is not initialized
     /// - Caller is not the admin
@@ -115,23 +119,35 @@ impl MNTToken {
     /// - Amount is not positive
     /// - Minting would exceed supply cap
     pub fn mint(env: Env, to: Address, amount: i128) {
-        let admin: Address = env.storage().persistent().get(&DataKey::Admin).expect("Not initialized");
+        let admin: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Admin)
+            .expect("Not initialized");
         admin.require_auth();
 
         if amount <= 0 {
             panic!("Amount must be positive");
         }
 
-        let total_supply: i128 = env.storage().persistent().get(&DataKey::TotalSupply).unwrap_or(0);
+        let total_supply: i128 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::TotalSupply)
+            .unwrap_or(0);
         let new_total_supply = total_supply.checked_add(amount).expect("Overflow");
-        
+
         if new_total_supply > SUPPLY_CAP {
             panic!("Supply cap exceeded");
         }
 
         let balance = Self::balance(env.clone(), to.clone());
-        env.storage().persistent().set(&DataKey::Balance(to.clone()), &(balance + amount));
-        env.storage().persistent().set(&DataKey::TotalSupply, &new_total_supply);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Balance(to.clone()), &(balance + amount));
+        env.storage()
+            .persistent()
+            .set(&DataKey::TotalSupply, &new_total_supply);
 
         env.events().publish(
             (Symbol::new(&env, "MNTToken"), Symbol::new(&env, "Mint"), to.clone()),
@@ -140,10 +156,10 @@ impl MNTToken {
     }
 
     /// Burn tokens from an account.
-    /// 
+    ///
     /// Auth: Only the token holder can burn their own tokens.
     /// The 'from' address must provide valid authorization.
-    /// 
+    ///
     /// Panics if:
     /// - Caller is not the 'from' address
     /// - Caller fails authorization check
@@ -161,10 +177,11 @@ impl MNTToken {
             panic!("Insufficient balance");
         }
 
-        let total_supply: i128 = env.storage().persistent().get(&DataKey::TotalSupply).unwrap_or(0);
-        
-        env.storage().persistent().set(&DataKey::Balance(from.clone()), &(balance - amount));
-        env.storage().persistent().set(&DataKey::TotalSupply, &(total_supply - amount));
+        let total_supply: i128 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::TotalSupply)
+            .unwrap_or(0);
 
         env.events().publish(
             (Symbol::new(&env, "MNTToken"), Symbol::new(&env, "Burn"), from.clone()),
@@ -187,10 +204,10 @@ impl TokenInterface for MNTToken {
     }
 
     /// Approve a spender to use tokens on behalf of the owner.
-    /// 
+    ///
     /// Auth: Only the token owner can approve spenders.
     /// The 'from' address must provide valid authorization.
-    /// 
+    ///
     /// Panics if:
     /// - Caller is not the 'from' address
     /// - Caller fails authorization check
@@ -203,7 +220,7 @@ impl TokenInterface for MNTToken {
         env.storage()
             .persistent()
             .set(&DataKey::Allowance(from.clone(), spender.clone()), &amount);
-        
+
         // Note: Simple implementation, expiration_ledger is usually used for TTL in Soroban
         // but for simplicity in this MVP we just store the amount.
         
@@ -221,10 +238,10 @@ impl TokenInterface for MNTToken {
     }
 
     /// Transfer tokens from one account to another.
-    /// 
+    ///
     /// Auth: Only the token owner can transfer their tokens.
     /// The 'from' address must provide valid authorization.
-    /// 
+    ///
     /// Panics if:
     /// - Caller is not the 'from' address
     /// - Caller fails authorization check
@@ -243,8 +260,12 @@ impl TokenInterface for MNTToken {
 
         let to_balance = Self::balance(env.clone(), to.clone());
 
-        env.storage().persistent().set(&DataKey::Balance(from.clone()), &(from_balance - amount));
-        env.storage().persistent().set(&DataKey::Balance(to.clone()), &(to_balance + amount));
+        env.storage()
+            .persistent()
+            .set(&DataKey::Balance(from.clone()), &(from_balance - amount));
+        env.storage()
+            .persistent()
+            .set(&DataKey::Balance(to.clone()), &(to_balance + amount));
 
         env.events().publish(
             (Symbol::new(&env, "MNTToken"), Symbol::new(&env, "Transfer"), from.clone()),
@@ -253,10 +274,10 @@ impl TokenInterface for MNTToken {
     }
 
     /// Transfer tokens using an allowance.
-    /// 
+    ///
     /// Auth: Only the approved spender can transfer tokens on behalf of the owner.
     /// The spender address must provide valid authorization.
-    /// 
+    ///
     /// Panics if:
     /// - Caller is not the spender
     /// - Caller fails authorization check
@@ -289,6 +310,15 @@ impl TokenInterface for MNTToken {
             (Symbol::new(&env, "MNTToken"), Symbol::new(&env, "Transfer"), from.clone()),
             TransferEventData { to, amount },
         );
+        env.storage()
+            .persistent()
+            .set(&DataKey::Balance(from.clone()), &(from_balance - amount));
+        env.storage()
+            .persistent()
+            .set(&DataKey::Balance(to.clone()), &(to_balance + amount));
+
+        env.events()
+            .publish((symbol_short!("transfer"), from, to), amount);
     }
 
     fn burn(env: Env, from: Address, amount: i128) {
@@ -311,16 +341,24 @@ impl TokenInterface for MNTToken {
             panic!("Insufficient balance");
         }
 
-        let total_supply: i128 = env.storage().persistent().get(&DataKey::TotalSupply).unwrap_or(0);
-
-        env.storage().persistent().set(&DataKey::Allowance(from.clone(), spender.clone()), &(allowance - amount));
-        env.storage().persistent().set(&DataKey::Balance(from.clone()), &(from_balance - amount));
-        env.storage().persistent().set(&DataKey::TotalSupply, &(total_supply - amount));
+        let total_supply: i128 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::TotalSupply)
+            .unwrap_or(0);
 
         env.events().publish(
             (Symbol::new(&env, "MNTToken"), Symbol::new(&env, "Burn"), from.clone()),
             BurnEventData { amount },
         );
+        env.storage()
+            .persistent()
+            .set(&DataKey::Balance(from.clone()), &(from_balance - amount));
+        env.storage()
+            .persistent()
+            .set(&DataKey::TotalSupply, &(total_supply - amount));
+
+        env.events().publish((symbol_short!("burn"), from), amount);
     }
 
     fn decimals(_env: Env) -> u32 {
@@ -328,12 +366,20 @@ impl TokenInterface for MNTToken {
     }
 
     fn name(env: Env) -> String {
-        let metadata: TokenMetadata = env.storage().persistent().get(&DataKey::Metadata).expect("Not initialized");
+        let metadata: TokenMetadata = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Metadata)
+            .expect("Not initialized");
         metadata.name
     }
 
     fn symbol(env: Env) -> String {
-        let metadata: TokenMetadata = env.storage().persistent().get(&DataKey::Metadata).expect("Not initialized");
+        let metadata: TokenMetadata = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Metadata)
+            .expect("Not initialized");
         metadata.symbol
     }
 }
@@ -511,10 +557,10 @@ mod test {
         let client = MNTTokenClient::new(&env, &contract_id);
 
         client.initialize(&admin);
-        
+
         // Mints nearly up to cap
         client.mint(&user, &SUPPLY_CAP);
-        
+
         // This should fail
         client.mint(&user, &1);
     }

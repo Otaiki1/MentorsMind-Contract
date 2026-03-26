@@ -25,9 +25,7 @@ use mentorminds_verification::{VerificationContract, VerificationContractClient}
 
 /// Registers a Stellar Asset Contract and returns its address + SAC client.
 fn create_token<'a>(env: &'a Env, admin: &Address) -> (Address, StellarAssetClient<'a>) {
-    let addr = env
-        .register_stellar_asset_contract_v2(admin.clone())
-        .address();
+    let addr = env.register_stellar_asset_contract(admin.clone());
     (addr.clone(), StellarAssetClient::new(env, &addr))
 }
 
@@ -124,7 +122,10 @@ fn test_full_session_lifecycle() {
 
     // Step 1 — register mentor in verification contract (reputation gate)
     f.verify_mentor();
-    assert!(f.verif.is_verified(&f.mentor), "mentor must be verified before session");
+    assert!(
+        f.verif.is_verified(&f.mentor),
+        "mentor must be verified before session"
+    );
 
     // Step 2 — learner creates escrow
     let escrow_id = f.create_escrow(10_000);
@@ -149,7 +150,10 @@ fn test_full_session_lifecycle() {
     assert_eq!(released.net_amount, 9_500);
 
     // Step 5 — reputation contract still shows mentor as verified post-session
-    assert!(f.verif.is_verified(&f.mentor), "mentor reputation must persist after session");
+    assert!(
+        f.verif.is_verified(&f.mentor),
+        "mentor reputation must persist after session"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -232,7 +236,11 @@ fn test_referral_reward_after_first_session() {
     let treasury_before = token.balance(&f.treasury);
 
     f.escrow.release_funds(&f.learner, &eid1);
-    assert_eq!(token.balance(&f.treasury), treasury_before + 500, "first session: 5% fee");
+    assert_eq!(
+        token.balance(&f.treasury),
+        treasury_before + 500,
+        "first session: 5% fee"
+    );
 
     // Admin applies referral discount (0% fee) for subsequent sessions
     f.escrow.update_fee(&0u32);
@@ -245,7 +253,11 @@ fn test_referral_reward_after_first_session() {
 
     f.escrow.release_funds(&f.learner, &eid2);
 
-    assert_eq!(token.balance(&f.mentor), mentor_before + 10_000, "referral session: no fee");
+    assert_eq!(
+        token.balance(&f.mentor),
+        mentor_before + 10_000,
+        "referral session: no fee"
+    );
     assert_eq!(
         token.balance(&f.treasury),
         treasury_after_first,
@@ -417,7 +429,12 @@ fn test_staking_tier_verified_vs_unverified() {
 
     // Gold mentor session
     let eid_gold = gold_escrow.create_escrow(
-        &mentor_gold, &learner, &10_000, &symbol_short!("G1"), &token, &now,
+        &mentor_gold,
+        &learner,
+        &10_000,
+        &symbol_short!("G1"),
+        &token,
+        &now,
     );
     let gold_mentor_before = tok.balance(&mentor_gold);
     let treasury_before = tok.balance(&treasury);
@@ -428,7 +445,12 @@ fn test_staking_tier_verified_vs_unverified() {
     // Standard mentor session (unverified)
     assert!(!verif.is_verified(&mentor_std));
     let eid_std = std_escrow.create_escrow(
-        &mentor_std, &learner, &10_000, &symbol_short!("S1"), &token, &now,
+        &mentor_std,
+        &learner,
+        &10_000,
+        &symbol_short!("S1"),
+        &token,
+        &now,
     );
     let std_mentor_before = tok.balance(&mentor_std);
     let treasury_before2 = tok.balance(&treasury);
@@ -452,13 +474,28 @@ fn test_multiple_sessions_tracked_independently() {
 
     // Register three sessions
     let eid1 = f.escrow.create_escrow(
-        &f.mentor, &f.learner, &1_000, &symbol_short!("SES1"), &f.token, &now,
+        &f.mentor,
+        &f.learner,
+        &1_000,
+        &symbol_short!("SES1"),
+        &f.token,
+        &now,
     );
     let eid2 = f.escrow.create_escrow(
-        &f.mentor, &f.learner, &2_000, &symbol_short!("SES2"), &f.token, &now,
+        &f.mentor,
+        &f.learner,
+        &2_000,
+        &symbol_short!("SES2"),
+        &f.token,
+        &now,
     );
     let eid3 = f.escrow.create_escrow(
-        &f.mentor, &f.learner, &3_000, &symbol_short!("SES3"), &f.token, &now,
+        &f.mentor,
+        &f.learner,
+        &3_000,
+        &symbol_short!("SES3"),
+        &f.token,
+        &now,
     );
 
     assert_eq!(f.escrow.get_escrow_count(), 3);
@@ -471,7 +508,8 @@ fn test_multiple_sessions_tracked_independently() {
     assert_eq!(f.escrow.get_escrow(&eid3).status, EscrowStatus::Active);
 
     // Dispute session 3
-    f.escrow.dispute(&f.learner, &eid3, &symbol_short!("NO_SHOW"));
+    f.escrow
+        .dispute(&f.learner, &eid3, &symbol_short!("NO_SHOW"));
     assert_eq!(f.escrow.get_escrow(&eid3).status, EscrowStatus::Disputed);
 
     // Session 1 still unaffected
@@ -500,7 +538,12 @@ fn test_auto_release_after_session_end() {
     let now = env.ledger().timestamp();
     // session ends in 60 s; default auto-release delay = 72 h
     let eid = f.escrow.create_escrow(
-        &f.mentor, &f.learner, &10_000, &symbol_short!("SES1"), &f.token, &(now + 60),
+        &f.mentor,
+        &f.learner,
+        &10_000,
+        &symbol_short!("SES1"),
+        &f.token,
+        &(now + 60),
     );
 
     // Before window: must fail

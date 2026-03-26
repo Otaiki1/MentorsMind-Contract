@@ -34,10 +34,10 @@ pub struct VerificationContract;
 #[contractimpl]
 impl VerificationContract {
     /// Initialize the verification contract with an admin.
-    /// 
+    ///
     /// Auth: No authorization required for initialization.
     /// Can only be called once.
-    /// 
+    ///
     /// Panics if:
     /// - Contract is already initialized
     pub fn initialize(env: Env, admin: Address) {
@@ -48,10 +48,10 @@ impl VerificationContract {
     }
 
     /// Verify a mentor with credentials (admin only).
-    /// 
+    ///
     /// Auth: Only the admin can verify mentors.
     /// The admin address is retrieved from persistent storage.
-    /// 
+    ///
     /// Panics if:
     /// - Contract is not initialized
     /// - Caller is not the admin
@@ -87,10 +87,10 @@ impl VerificationContract {
     }
 
     /// Revoke a mentor's verification (admin only).
-    /// 
+    ///
     /// Auth: Only the admin can revoke verifications.
     /// The admin address is retrieved from persistent storage.
-    /// 
+    ///
     /// Panics if:
     /// - Contract is not initialized
     /// - Caller is not the admin

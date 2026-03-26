@@ -98,9 +98,7 @@ impl BenchmarkFixture {
     }
 
     fn create_token(env: &Env, admin: &Address) -> (Address, StellarAssetClient) {
-        let token_address = env
-            .register_stellar_asset_contract_v2(admin.clone())
-            .address();
+        let token_address = env.register_stellar_asset_contract(admin.clone());
         let sac = StellarAssetClient::new(env, &token_address);
         (token_address, sac)
     }
