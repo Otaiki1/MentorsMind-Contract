@@ -151,6 +151,10 @@ impl MNTToken {
             BurnEventData { amount },
         );
     }
+
+    pub fn total_supply(env: Env) -> i128 {
+        env.storage().persistent().get(&DataKey::TotalSupply).unwrap_or(0)
+    }
 }
 
 #[contractimpl]

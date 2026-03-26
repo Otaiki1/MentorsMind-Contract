@@ -1,6 +1,8 @@
 [workspace]
 members = [
     "escrow",
+    "contracts/governance",
+    "contracts/allowance",
     "contracts/verification",
     "contracts/oracle",
     "contracts/timelock",
