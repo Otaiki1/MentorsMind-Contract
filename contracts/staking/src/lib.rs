@@ -1,153 +1,124 @@
 #![no_std]
 
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, symbol_short, Address, Env, Map,
+    contract, contracterror, contractimpl, contracttype, token, Address, Env, Symbol,
 };
+
+// ---------------------------------------------------------------------------
+// Errors
+// ---------------------------------------------------------------------------
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
 pub enum Error {
-    NotInitialized = 1,
-    Unauthorized = 2,
-    InsufficientBalance = 3,
-    NoRewards = 4,
-    InvalidAmount = 5,
-    ZeroTotalStaked = 6,
+    AlreadyInitialized = 1,
+    NotInitialized = 2,
+    InvalidAmount = 3,
+    AlreadyStaked = 4,
+    NoStakeFound = 5,
+    StillLocked = 6,
+}
+
+// ---------------------------------------------------------------------------
+// Storage types
+// ---------------------------------------------------------------------------
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StakeRecord {
+    pub mentor: Address,
+    pub amount: i128,
+    pub staked_at: u64,
+    pub unlock_at: u64,
+    pub tier: u8,
+}
+
+// ---------------------------------------------------------------------------
+// Event data types
+// ---------------------------------------------------------------------------
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StakedEventData {
+    pub mentor: Address,
+    pub amount: i128,
+    pub unlock_at: u64,
+    pub tier: u8,
 }
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct RewardsDistributedEvent {
-    pub token: Address,
-    pub total_amount: i128,
-    pub total_staked: i128,
-}
-
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct RewardsClaimedEvent {
-    pub staker: Address,
-    pub token: Address,
+pub struct UnstakedEventData {
+    pub mentor: Address,
     pub amount: i128,
 }
+
+// ---------------------------------------------------------------------------
+// Storage keys
+// ---------------------------------------------------------------------------
 
 #[contracttype]
 #[derive(Clone)]
 pub enum DataKey {
     Admin,
-    Stakes,
-    TotalStaked,
-    PendingRewards,
+    MNTToken,
+    Stake(Address),
 }
+
+// ---------------------------------------------------------------------------
+// Tier thresholds (raw i128, no decimals assumed — callers pass raw amounts)
+// Thresholds: Bronze ≥ 100, Silver ≥ 500, Gold ≥ 2000
+// ---------------------------------------------------------------------------
+
+const TIER_BRONZE: i128 = 100;
+const TIER_SILVER: i128 = 500;
+const TIER_GOLD: i128 = 2_000;
+
+fn compute_tier(amount: i128) -> u8 {
+    if amount >= TIER_GOLD {
+        3
+    } else if amount >= TIER_SILVER {
+        2
+    } else if amount >= TIER_BRONZE {
+        1
+    } else {
+        0
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Contract
+// ---------------------------------------------------------------------------
 
 #[contract]
 pub struct StakingContract;
 
 #[contractimpl]
 impl StakingContract {
-    /// Initialize staking contract with admin
-    pub fn init(env: Env, admin: Address) -> Result<(), Error> {
+    /// Initialize the staking contract.
+    /// Must be called once before any other function.
+    pub fn initialize(env: Env, admin: Address, mnt_token: Address) -> Result<(), Error> {
         if env.storage().persistent().has(&DataKey::Admin) {
-            return Err(Error::Unauthorized);
+            return Err(Error::AlreadyInitialized);
         }
         env.storage().persistent().set(&DataKey::Admin, &admin);
-        env.storage().persistent().set(&DataKey::TotalStaked, &0i128);
-
-        // Initialize empty maps
-        let empty_stakes: Map<Address, i128> = Map::new(&env);
-        let empty_rewards: Map<(Address, Address), i128> = Map::new(&env);
-
-        env.storage().persistent().set(&DataKey::Stakes, &empty_stakes);
-        env.storage()
-            .persistent()
-            .set(&DataKey::PendingRewards, &empty_rewards);
-
+        env.storage().persistent().set(&DataKey::MNTToken, &mnt_token);
         Ok(())
     }
 
-    /// Stake MNT tokens
-    pub fn stake(env: Env, staker: Address, amount: i128) -> Result<(), Error> {
-        if !env.storage().persistent().has(&DataKey::Admin) {
-            return Err(Error::NotInitialized);
-        }
-
-        if amount <= 0 {
-            return Err(Error::InvalidAmount);
-        }
-
-        let mut stakes: Map<Address, i128> = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Stakes)
-            .unwrap_or(Ok(Map::new(&env)))
-            .unwrap_or_else(|_| Map::new(&env));
-
-        let current_stake = stakes.get(staker.clone()).unwrap_or(Ok(0i128)).unwrap_or(0i128);
-        stakes.set(staker.clone(), current_stake + amount);
-
-        let mut total_staked: i128 = env
-            .storage()
-            .persistent()
-            .get(&DataKey::TotalStaked)
-            .unwrap_or(Ok(0i128))
-            .unwrap_or(0i128);
-        total_staked += amount;
-
-        env.storage().persistent().set(&DataKey::Stakes, &stakes);
-        env.storage()
-            .persistent()
-            .set(&DataKey::TotalStaked, &total_staked);
-
-        Ok(())
-    }
-
-    /// Unstake MNT tokens
-    pub fn unstake(env: Env, staker: Address, amount: i128) -> Result<(), Error> {
-        if !env.storage().persistent().has(&DataKey::Admin) {
-            return Err(Error::NotInitialized);
-        }
-
-        if amount <= 0 {
-            return Err(Error::InvalidAmount);
-        }
-
-        let mut stakes: Map<Address, i128> = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Stakes)
-            .unwrap_or(Ok(Map::new(&env)))
-            .unwrap_or_else(|_| Map::new(&env));
-
-        let current_stake = stakes.get(staker.clone()).unwrap_or(Ok(0i128)).unwrap_or(0i128);
-
-        if current_stake < amount {
-            return Err(Error::InsufficientBalance);
-        }
-
-        stakes.set(staker.clone(), current_stake - amount);
-
-        let mut total_staked: i128 = env
-            .storage()
-            .persistent()
-            .get(&DataKey::TotalStaked)
-            .unwrap_or(Ok(0i128))
-            .unwrap_or(0i128);
-        total_staked -= amount;
-
-        env.storage().persistent().set(&DataKey::Stakes, &stakes);
-        env.storage()
-            .persistent()
-            .set(&DataKey::TotalStaked, &total_staked);
-
-        Ok(())
-    }
-
-    /// Distribute revenue to stakers (30% of fee revenue)
-    pub fn distribute_revenue(
+    /// Stake MNT tokens for a given lock period.
+    ///
+    /// - Transfers `amount` MNT from `mentor` to this contract.
+    /// - Stores a StakeRecord with tier derived from amount.
+    /// - A mentor can only have one active stake at a time.
+    ///
+    /// Auth: `mentor` must authorize this call.
+    pub fn stake(
         env: Env,
-        token: Address,
+        mentor: Address,
         amount: i128,
+        lock_period_days: u32,
     ) -> Result<(), Error> {
         if !env.storage().persistent().has(&DataKey::Admin) {
             return Err(Error::NotInitialized);
@@ -157,247 +128,400 @@ impl StakingContract {
             return Err(Error::InvalidAmount);
         }
 
-        let total_staked: i128 = env
-            .storage()
-            .persistent()
-            .get(&DataKey::TotalStaked)
-            .unwrap_or(Ok(0i128))
-            .unwrap_or(0i128);
-
-        if total_staked == 0 {
-            return Err(Error::ZeroTotalStaked);
+        if env.storage().persistent().has(&DataKey::Stake(mentor.clone())) {
+            return Err(Error::AlreadyStaked);
         }
 
-        let stakes: Map<Address, i128> = env
+        mentor.require_auth();
+
+        let mnt_token: Address = env
             .storage()
             .persistent()
-            .get(&DataKey::Stakes)
-            .unwrap_or(Ok(Map::new(&env)))
-            .unwrap_or_else(|_| Map::new(&env));
+            .get(&DataKey::MNTToken)
+            .ok_or(Error::NotInitialized)?;
 
-        let mut pending_rewards: Map<(Address, Address), i128> = env
-            .storage()
-            .persistent()
-            .get(&DataKey::PendingRewards)
-            .unwrap_or(Ok(Map::new(&env)))
-            .unwrap_or_else(|_| Map::new(&env));
+        // Transfer MNT from mentor to this contract
+        let token_client = token::Client::new(&env, &mnt_token);
+        token_client.transfer(&mentor, &env.current_contract_address(), &amount);
 
-        // Iterate through all stakers and distribute rewards pro-rata
-        for entry in stakes.iter() {
-            let staker = entry.0;
-            let staker_stake = entry.1;
+        let now = env.ledger().timestamp();
+        let lock_seconds = (lock_period_days as u64) * 86_400u64;
+        let unlock_at = now + lock_seconds;
+        let tier = compute_tier(amount);
 
-            // Calculate staker's share: amount * staker_stake / total_staked
-            let reward = if staker_stake > 0 {
-                (amount * staker_stake) / total_staked
-            } else {
-                0
-            };
-
-            if reward > 0 {
-                let key = (staker.clone(), token.clone());
-                let current_pending = pending_rewards
-                    .get(key.clone())
-                    .unwrap_or(Ok(0i128))
-                    .unwrap_or(0i128);
-                pending_rewards.set(key, current_pending + reward);
-            }
-        }
+        let record = StakeRecord {
+            mentor: mentor.clone(),
+            amount,
+            staked_at: now,
+            unlock_at,
+            tier,
+        };
 
         env.storage()
             .persistent()
-            .set(&DataKey::PendingRewards, &pending_rewards);
+            .set(&DataKey::Stake(mentor.clone()), &record);
 
-        // Emit rewards_distributed event
         env.events().publish(
-            (symbol_short!("reward"), token.clone()),
-            RewardsDistributedEvent {
-                token,
-                total_amount: amount,
-                total_staked,
+            (
+                Symbol::new(&env, "Staking"),
+                Symbol::new(&env, "staked"),
+                mentor.clone(),
+            ),
+            StakedEventData {
+                mentor,
+                amount,
+                unlock_at,
+                tier,
             },
         );
 
         Ok(())
     }
 
-    /// Get pending rewards for a staker
-    pub fn get_pending_rewards(env: Env, staker: Address, token: Address) -> Result<i128, Error> {
-        let pending_rewards: Map<(Address, Address), i128> = env
-            .storage()
-            .persistent()
-            .get(&DataKey::PendingRewards)
-            .unwrap_or(Ok(Map::new(&env)))
-            .unwrap_or_else(|_| Map::new(&env));
-
-        let key = (staker, token);
-        Ok(pending_rewards
-            .get(key)
-            .unwrap_or(Ok(0i128))
-            .unwrap_or(0i128))
-    }
-
-    /// Claim rewards (transfers pending rewards to staker)
-    pub fn claim_rewards(env: Env, staker: Address, token: Address) -> Result<i128, Error> {
+    /// Unstake MNT tokens after the lock period has expired.
+    ///
+    /// - Returns the full staked amount back to `mentor`.
+    /// - Removes the StakeRecord.
+    ///
+    /// Auth: `mentor` must authorize this call.
+    pub fn unstake(env: Env, mentor: Address) -> Result<(), Error> {
         if !env.storage().persistent().has(&DataKey::Admin) {
             return Err(Error::NotInitialized);
         }
 
-        let mut pending_rewards: Map<(Address, Address), i128> = env
+        let record: StakeRecord = env
             .storage()
             .persistent()
-            .get(&DataKey::PendingRewards)
-            .unwrap_or(Ok(Map::new(&env)))
-            .unwrap_or_else(|_| Map::new(&env));
+            .get(&DataKey::Stake(mentor.clone()))
+            .ok_or(Error::NoStakeFound)?;
 
-        let key = (staker.clone(), token.clone());
-        let amount = pending_rewards
-            .get(key.clone())
-            .unwrap_or(Ok(0i128))
-            .unwrap_or(0i128);
-
-        if amount == 0 {
-            return Err(Error::NoRewards);
+        let now = env.ledger().timestamp();
+        if now < record.unlock_at {
+            return Err(Error::StillLocked);
         }
 
-        // Clear pending reward
-        pending_rewards.set(key, 0i128);
+        mentor.require_auth();
+
+        let mnt_token: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::MNTToken)
+            .ok_or(Error::NotInitialized)?;
+
+        let token_client = token::Client::new(&env, &mnt_token);
+        token_client.transfer(&env.current_contract_address(), &mentor, &record.amount);
 
         env.storage()
             .persistent()
-            .set(&DataKey::PendingRewards, &pending_rewards);
+            .remove(&DataKey::Stake(mentor.clone()));
 
-        // Emit rewards_claimed event
         env.events().publish(
-            (symbol_short!("claimed"), token.clone()),
-            RewardsClaimedEvent {
-                staker,
-                token,
-                amount,
+            (
+                Symbol::new(&env, "Staking"),
+                Symbol::new(&env, "unstaked"),
+                mentor.clone(),
+            ),
+            UnstakedEventData {
+                mentor,
+                amount: record.amount,
             },
         );
 
-        Ok(amount)
+        Ok(())
     }
 
-    /// Get staker's current stake
-    pub fn get_stake(env: Env, staker: Address) -> Result<i128, Error> {
-        let stakes: Map<Address, i128> = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Stakes)
-            .unwrap_or(Ok(Map::new(&env)))
-            .unwrap_or_else(|_| Map::new(&env));
-
-        Ok(stakes
-            .get(staker)
-            .unwrap_or(Ok(0i128))
-            .unwrap_or(0i128))
-    }
-
-    /// Get total staked amount
-    pub fn get_total_staked(env: Env) -> Result<i128, Error> {
+    /// Return the StakeRecord for a mentor, or an error if none exists.
+    pub fn get_stake(env: Env, mentor: Address) -> Result<StakeRecord, Error> {
         env.storage()
             .persistent()
-            .get(&DataKey::TotalStaked)
-            .unwrap_or(Ok(0i128))
+            .get(&DataKey::Stake(mentor))
+            .ok_or(Error::NoStakeFound)
+    }
+
+    /// Return the tier for a mentor.
+    /// 0 = None, 1 = Bronze, 2 = Silver, 3 = Gold
+    pub fn get_tier(env: Env, mentor: Address) -> u8 {
+        env.storage()
+            .persistent()
+            .get::<DataKey, StakeRecord>(&DataKey::Stake(mentor))
+            .map(|r| r.tier)
+            .unwrap_or(0)
     }
 }
 
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
 #[cfg(test)]
-mod tests {
+mod test {
+    extern crate std;
     use super::*;
+    use soroban_sdk::testutils::{Address as _, Ledger};
+    use soroban_sdk::Env;
+
+    // ---------------------------------------------------------------------------
+    // Minimal mock MNT token — mirrors the real token's storage pattern so that
+    // token::Client calls (transfer / balance) work correctly in tests.
+    // ---------------------------------------------------------------------------
+
+    #[contracttype]
+    #[derive(Clone)]
+    pub enum MockDataKey {
+        Balance(Address),
+    }
+
+    #[contract]
+    pub struct MockMNT;
+
+    #[contractimpl]
+    impl MockMNT {
+        pub fn mint(env: Env, to: Address, amount: i128) {
+            let bal: i128 = env
+                .storage()
+                .persistent()
+                .get(&MockDataKey::Balance(to.clone()))
+                .unwrap_or(0);
+            env.storage()
+                .persistent()
+                .set(&MockDataKey::Balance(to), &(bal + amount));
+        }
+
+        pub fn balance(env: Env, id: Address) -> i128 {
+            env.storage()
+                .persistent()
+                .get(&MockDataKey::Balance(id))
+                .unwrap_or(0)
+        }
+
+        pub fn transfer(env: Env, from: Address, to: Address, amount: i128) {
+            from.require_auth();
+            let from_bal = Self::balance(env.clone(), from.clone());
+            assert!(from_bal >= amount, "Insufficient balance");
+            let to_bal = Self::balance(env.clone(), to.clone());
+            env.storage()
+                .persistent()
+                .set(&MockDataKey::Balance(from), &(from_bal - amount));
+            env.storage()
+                .persistent()
+                .set(&MockDataKey::Balance(to), &(to_bal + amount));
+        }
+    }
+
+    struct Fixture {
+        env: Env,
+        staking_id: Address,
+        mnt_id: Address,
+        admin: Address,
+    }
+
+    impl Fixture {
+        fn setup() -> Self {
+            let env = Env::default();
+            env.mock_all_auths();
+
+            let admin = Address::generate(&env);
+            let mnt_id = env.register_contract(None, MockMNT);
+
+            let staking_id = env.register_contract(None, StakingContract);
+            StakingContractClient::new(&env, &staking_id)
+                .initialize(&admin, &mnt_id)
+                .unwrap();
+
+            Fixture {
+                env,
+                staking_id,
+                mnt_id,
+                admin,
+            }
+        }
+
+        fn client(&self) -> StakingContractClient {
+            StakingContractClient::new(&self.env, &self.staking_id)
+        }
+
+        fn mnt(&self) -> MockMNTClient {
+            MockMNTClient::new(&self.env, &self.mnt_id)
+        }
+
+        fn fund(&self, addr: &Address, amount: i128) {
+            self.mnt().mint(addr, &amount);
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // stake / tier assignment
+    // -----------------------------------------------------------------------
 
     #[test]
-    fn test_pro_rata_distribution() {
-        let env = Env::default();
-        let admin = Address::random(&env);
-        let staker1 = Address::random(&env);
-        let staker2 = Address::random(&env);
-        let staker3 = Address::random(&env);
-        let token = Address::random(&env);
+    fn test_stake_assigns_no_tier_below_bronze() {
+        let f = Fixture::setup();
+        let mentor = Address::generate(&f.env);
+        f.fund(&mentor, 50);
 
-        // Initialize
-        assert!(StakingContract::init(env.clone(), admin.clone()).is_ok());
+        f.client().stake(&mentor, &50, &30).unwrap();
 
-        // Three stakers with different amounts
-        assert!(StakingContract::stake(env.clone(), staker1.clone(), 1000).is_ok());
-        assert!(StakingContract::stake(env.clone(), staker2.clone(), 2000).is_ok());
-        assert!(StakingContract::stake(env.clone(), staker3.clone(), 3000).is_ok());
-
-        // Distribute 600 tokens (30% of 2000 fees simulated)
-        assert!(StakingContract::distribute_revenue(env.clone(), token.clone(), 600).is_ok());
-
-        // Check pro-rata distribution
-        let rewards1 = StakingContract::get_pending_rewards(env.clone(), staker1.clone(), token.clone())
-            .unwrap();
-        let rewards2 = StakingContract::get_pending_rewards(env.clone(), staker2.clone(), token.clone())
-            .unwrap();
-        let rewards3 = StakingContract::get_pending_rewards(env.clone(), staker3, token.clone())
-            .unwrap();
-
-        // Total is 6000, so:
-        // Staker1: 600 * 1000 / 6000 = 100
-        // Staker2: 600 * 2000 / 6000 = 200
-        // Staker3: 600 * 3000 / 6000 = 300
-        assert_eq!(rewards1, 100);
-        assert_eq!(rewards2, 200);
-        assert_eq!(rewards3, 300);
+        assert_eq!(f.client().get_tier(&mentor), 0);
+        let record = f.client().get_stake(&mentor).unwrap();
+        assert_eq!(record.amount, 50);
+        assert_eq!(record.tier, 0);
     }
 
     #[test]
-    fn test_claim_rewards() {
-        let env = Env::default();
-        let admin = Address::random(&env);
-        let staker = Address::random(&env);
-        let token = Address::random(&env);
+    fn test_stake_assigns_bronze_tier() {
+        let f = Fixture::setup();
+        let mentor = Address::generate(&f.env);
+        f.fund(&mentor, 100);
 
-        StakingContract::init(env.clone(), admin).unwrap();
-        StakingContract::stake(env.clone(), staker.clone(), 1000).unwrap();
-        StakingContract::distribute_revenue(env.clone(), token.clone(), 100).unwrap();
+        f.client().stake(&mentor, &100, &30).unwrap();
 
-        let pending = StakingContract::get_pending_rewards(env.clone(), staker.clone(), token.clone())
-            .unwrap();
-        assert_eq!(pending, 100);
-
-        let claimed = StakingContract::claim_rewards(env.clone(), staker.clone(), token.clone()).unwrap();
-        assert_eq!(claimed, 100);
-
-        let remaining = StakingContract::get_pending_rewards(env, staker, token).unwrap();
-        assert_eq!(remaining, 0);
+        assert_eq!(f.client().get_tier(&mentor), 1);
     }
 
     #[test]
-    fn test_correct_distribution() {
-        let env = Env::default();
-        let admin = Address::random(&env);
-        let staker1 = Address::random(&env);
-        let staker2 = Address::random(&env);
-        let usdc_token = Address::random(&env);
-        let xlm_token = Address::random(&env);
+    fn test_stake_assigns_silver_tier() {
+        let f = Fixture::setup();
+        let mentor = Address::generate(&f.env);
+        f.fund(&mentor, 500);
 
-        StakingContract::init(env.clone(), admin).unwrap();
-        StakingContract::stake(env.clone(), staker1.clone(), 500).unwrap();
-        StakingContract::stake(env.clone(), staker2.clone(), 500).unwrap();
+        f.client().stake(&mentor, &500, &30).unwrap();
 
-        // Distribute USDC
-        StakingContract::distribute_revenue(env.clone(), usdc_token.clone(), 1000).unwrap();
+        assert_eq!(f.client().get_tier(&mentor), 2);
+    }
 
-        // Distribute XLM
-        StakingContract::distribute_revenue(env.clone(), xlm_token.clone(), 2000).unwrap();
+    #[test]
+    fn test_stake_assigns_gold_tier() {
+        let f = Fixture::setup();
+        let mentor = Address::generate(&f.env);
+        f.fund(&mentor, 2_000);
 
-        let usdc_rewards1 = StakingContract::get_pending_rewards(env.clone(), staker1.clone(), usdc_token)
-            .unwrap();
-        let xlm_rewards1 = StakingContract::get_pending_rewards(env.clone(), staker1.clone(), xlm_token)
-            .unwrap();
-        let usdc_rewards2 = StakingContract::get_pending_rewards(env.clone(), staker2.clone(), usdc_token)
-            .unwrap();
-        let xlm_rewards2 = StakingContract::get_pending_rewards(env, staker2, xlm_token).unwrap();
+        f.client().stake(&mentor, &2_000, &30).unwrap();
 
-        // Each staker gets 50% of rewards
-        assert_eq!(usdc_rewards1, 500);
-        assert_eq!(usdc_rewards2, 500);
-        assert_eq!(xlm_rewards1, 1000);
-        assert_eq!(xlm_rewards2, 1000);
+        assert_eq!(f.client().get_tier(&mentor), 3);
+    }
+
+    #[test]
+    fn test_stake_stores_correct_unlock_at() {
+        let f = Fixture::setup();
+        f.env.ledger().set_timestamp(1_000_000);
+
+        let mentor = Address::generate(&f.env);
+        f.fund(&mentor, 500);
+
+        f.client().stake(&mentor, &500, &10).unwrap();
+
+        let record = f.client().get_stake(&mentor).unwrap();
+        // 10 days * 86400 seconds
+        assert_eq!(record.unlock_at, 1_000_000 + 10 * 86_400);
+    }
+
+    #[test]
+    fn test_stake_transfers_tokens_to_contract() {
+        let f = Fixture::setup();
+        let mentor = Address::generate(&f.env);
+        f.fund(&mentor, 1_000);
+
+        f.client().stake(&mentor, &1_000, &30).unwrap();
+
+        assert_eq!(f.mnt().balance(&mentor), 0);
+        assert_eq!(f.mnt().balance(&f.staking_id), 1_000);
+    }
+
+    #[test]
+    fn test_stake_rejects_duplicate() {
+        let f = Fixture::setup();
+        let mentor = Address::generate(&f.env);
+        f.fund(&mentor, 2_000);
+
+        f.client().stake(&mentor, &500, &30).unwrap();
+
+        let result = f.client().try_stake(&mentor, &500, &30);
+        assert_eq!(result, Err(Ok(Error::AlreadyStaked)));
+    }
+
+    #[test]
+    fn test_stake_rejects_zero_amount() {
+        let f = Fixture::setup();
+        let mentor = Address::generate(&f.env);
+
+        let result = f.client().try_stake(&mentor, &0, &30);
+        assert_eq!(result, Err(Ok(Error::InvalidAmount)));
+    }
+
+    // -----------------------------------------------------------------------
+    // unstake
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_unstake_after_lock_returns_tokens() {
+        let f = Fixture::setup();
+        f.env.ledger().set_timestamp(0);
+
+        let mentor = Address::generate(&f.env);
+        f.fund(&mentor, 500);
+
+        f.client().stake(&mentor, &500, &30).unwrap();
+
+        // Advance past lock period
+        f.env.ledger().set_timestamp(30 * 86_400 + 1);
+
+        f.client().unstake(&mentor).unwrap();
+
+        assert_eq!(f.mnt().balance(&mentor), 500);
+        assert_eq!(f.mnt().balance(&f.staking_id), 0);
+
+        // Stake record should be gone
+        let result = f.client().try_get_stake(&mentor);
+        assert_eq!(result, Err(Ok(Error::NoStakeFound)));
+    }
+
+    #[test]
+    fn test_unstake_rejects_early_unlock() {
+        let f = Fixture::setup();
+        f.env.ledger().set_timestamp(0);
+
+        let mentor = Address::generate(&f.env);
+        f.fund(&mentor, 500);
+
+        f.client().stake(&mentor, &500, &30).unwrap();
+
+        // Only 1 day has passed — still locked
+        f.env.ledger().set_timestamp(86_400);
+
+        let result = f.client().try_unstake(&mentor);
+        assert_eq!(result, Err(Ok(Error::StillLocked)));
+    }
+
+    #[test]
+    fn test_unstake_rejects_no_stake() {
+        let f = Fixture::setup();
+        let mentor = Address::generate(&f.env);
+
+        let result = f.client().try_unstake(&mentor);
+        assert_eq!(result, Err(Ok(Error::NoStakeFound)));
+    }
+
+    // -----------------------------------------------------------------------
+    // get_tier for unstaked mentor
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_get_tier_returns_zero_when_no_stake() {
+        let f = Fixture::setup();
+        let mentor = Address::generate(&f.env);
+        assert_eq!(f.client().get_tier(&mentor), 0);
+    }
+
+    // -----------------------------------------------------------------------
+    // double-initialize guard
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_initialize_rejects_double_init() {
+        let f = Fixture::setup();
+        let result = f
+            .client()
+            .try_initialize(&f.admin, &f.mnt_id);
+        assert_eq!(result, Err(Ok(Error::AlreadyInitialized)));
     }
 }
