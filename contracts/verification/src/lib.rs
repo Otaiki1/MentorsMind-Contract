@@ -1,0 +1,139 @@
+#![no_std]
+use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, BytesN, Env, Symbol};
+
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct VerificationRecord {
+    pub credential_hash: BytesN<32>,
+    pub verified_at: u64,
+    pub expiry: u64,
+    pub is_active: bool,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MentorVerifiedEventData {
+    pub credential_hash: BytesN<32>,
+    pub verified_at: u64,
+    pub expiry: u64,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct VerificationRevokedEventData {
+    pub revoked: bool,
+}
+
+const ADMIN: Symbol = symbol_short!("ADMIN");
+const VER_KEY: Symbol = symbol_short!("VER");
+const TIER_KEY: Symbol = symbol_short!("TIER");
+
+#[contract]
+pub struct VerificationContract;
+
+#[contractimpl]
+impl VerificationContract {
+    /// Initialize the verification contract with an admin.
+    /// 
+    /// Auth: No authorization required for initialization.
+    /// Can only be called once.
+    /// 
+    /// Panics if:
+    /// - Contract is already initialized
+    pub fn initialize(env: Env, admin: Address) {
+        if env.storage().persistent().has(&ADMIN) {
+            panic!("Already initialized");
+        }
+        env.storage().persistent().set(&ADMIN, &admin);
+    }
+
+    /// Verify a mentor with credentials (admin only).
+    /// 
+    /// Auth: Only the admin can verify mentors.
+    /// The admin address is retrieved from persistent storage.
+    /// 
+    /// Panics if:
+    /// - Contract is not initialized
+    /// - Caller is not the admin
+    /// - Caller fails authorization check
+    pub fn verify_mentor(env: Env, mentor: Address, credential_hash: BytesN<32>, expiry: u64) {
+        let admin: Address = env
+            .storage()
+            .persistent()
+            .get(&ADMIN)
+            .expect("Not initialized");
+        admin.require_auth();
+        let now = env.ledger().timestamp();
+        let rec = VerificationRecord {
+            credential_hash,
+            verified_at: now,
+            expiry,
+            is_active: true,
+        };
+        let key = (VER_KEY, mentor.clone());
+        env.storage().persistent().set(&key, &rec);
+        let tkey = (TIER_KEY, mentor.clone());
+        if !env.storage().persistent().has(&tkey) {
+            env.storage().persistent().set(&tkey, &0i32);
+        }
+        env.events().publish(
+            (Symbol::new(&env, "Verification"), Symbol::new(&env, "Verified"), mentor.clone()),
+            MentorVerifiedEventData {
+                credential_hash: rec.credential_hash.clone(),
+                verified_at: rec.verified_at,
+                expiry: rec.expiry,
+            },
+        );
+    }
+
+    /// Revoke a mentor's verification (admin only).
+    /// 
+    /// Auth: Only the admin can revoke verifications.
+    /// The admin address is retrieved from persistent storage.
+    /// 
+    /// Panics if:
+    /// - Contract is not initialized
+    /// - Caller is not the admin
+    /// - Caller fails authorization check
+    /// - Mentor is not verified
+    pub fn revoke_verification(env: Env, mentor: Address) {
+        let admin: Address = env
+            .storage()
+            .persistent()
+            .get(&ADMIN)
+            .expect("Not initialized");
+        admin.require_auth();
+        let key = (VER_KEY, mentor.clone());
+        let mut rec: VerificationRecord = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .expect("Not verified");
+        rec.is_active = false;
+        env.storage().persistent().set(&key, &rec);
+        env.events().publish(
+            (Symbol::new(&env, "Verification"), Symbol::new(&env, "Revoked"), mentor.clone()),
+            VerificationRevokedEventData { revoked: true },
+        );
+    }
+
+    pub fn is_verified(env: Env, mentor: Address) -> bool {
+        let key = (VER_KEY, mentor);
+        let rec: Option<VerificationRecord> = env.storage().persistent().get(&key);
+        match rec {
+            None => false,
+            Some(r) => r.is_active && env.ledger().timestamp() <= r.expiry,
+        }
+    }
+
+    pub fn get_verification(env: Env, mentor: Address) -> VerificationRecord {
+        let key = (VER_KEY, mentor);
+        env.storage()
+            .persistent()
+            .get(&key)
+            .expect("Not verified")
+    }
+}
+
+#[cfg(test)]
+mod test {}

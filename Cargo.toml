@@ -1,9 +1,13 @@
 [workspace]
 members = [
     "escrow",
-    "stream",
-    # "multisig",
-    # "payment-router",
+    "contracts/governance",
+    "contracts/allowance",
+    "contracts/verification",
+    "contracts/oracle",
+    "contracts/timelock",
+    "contracts/vesting",
+    "tests",
 ]
 
 [workspace.package]
@@ -13,6 +17,7 @@ rust-version = "1.70"
 
 [workspace.dependencies]
 soroban-sdk = "21.0.0"
+soroban-token-sdk = "21.0.0"
 
 [profile.release]
 opt-level = "z"
