@@ -4,6 +4,7 @@ members = [
     "escrow",
     "contracts/governance",
     "contracts/allowance",
+    "contracts/interface_registry",
     "contracts/verification",
     "contracts/oracle",
     "contracts/timelock",
