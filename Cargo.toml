@@ -9,6 +9,7 @@ members = [
     "contracts/timelock",
     "contracts/vesting",
     "contracts/payment_router",
+    "contracts/snapshot",
     "tests",
 ]
 
