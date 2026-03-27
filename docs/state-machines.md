@@ -73,6 +73,19 @@ stateDiagram-v2
     Expired --> [*]
 ```
 
+### Transitions
+
+| From | To | Trigger | Preconditions |
+|------|----|---------|---------------|
+| `[*] ` | `Active` | `new_subscription` | Valid payment |
+| `Active` | `Active` | `renewal` | Successful payment |
+| `Active` | `Cancelled` | `cancel` | User auth |
+| `Active` | `Expired` | `timeout` | `now > expiry` |
+| `Cancelled`| `Active` | `reactive` | Successful payment |
+| `Expired` | `[*] ` | `cleanup` | None |
+
+---
+
 ---
 
 ## 4. Loan State Machine
@@ -88,6 +101,16 @@ stateDiagram-v2
     Requested --> Cancelled: cancel_request
 ```
 
+### Transitions
+
+| From | To | Trigger | Preconditions |
+|------|----|---------|---------------|
+| `[*] ` | `Requested` | `request_loan` | Valid collateral/terms |
+| `Requested`| `Active` | `fund_loan` | Lender auth, funds transferred |
+| `Active` | `Repaid` | `repay` | Full amount paid |
+| `Active` | `Defaulted` | `timeout` | `now > deadline` & unpaid |
+| `Requested`| `Cancelled` | `cancel_request` | Borrower auth |
+
 ---
 
 ## 5. ISA (Income Share Agreement) State Machine
@@ -101,6 +124,15 @@ stateDiagram-v2
     Repaying --> Fulfilled: payment_cap_reached
     Repaying --> Defaulted: persistent_non_payment
 ```
+
+### Transitions
+
+| From | To | Trigger | Preconditions |
+|------|----|---------|---------------|
+| `[*] ` | `Active` | `sign_agreement` | Learner auth |
+| `Active` | `Repaying` | `verify_employment` | Proof of income |
+| `Repaying` | `Fulfilled` | `repay` | Total cap reached |
+| `Repaying` | `Defaulted` | `non_payment` | Missed payment window |
 
 ## Methodology
 

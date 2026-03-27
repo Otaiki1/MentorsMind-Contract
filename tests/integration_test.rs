@@ -25,9 +25,7 @@ use mentorminds_verification::{VerificationContract, VerificationContractClient}
 
 /// Registers a Stellar Asset Contract and returns its address + SAC client.
 fn create_token<'a>(env: &'a Env, admin: &Address) -> (Address, StellarAssetClient<'a>) {
-    let addr = env
-        .register_stellar_asset_contract_v2(admin.clone())
-        .address();
+    let addr = env.register_stellar_asset_contract(admin.clone());
     (addr.clone(), StellarAssetClient::new(env, &addr))
 }
 
@@ -109,7 +107,6 @@ impl<'a> Fixture<'a> {
             &symbol_short!("SES1"),
             &self.token,
             &now,
-            &1u32,
         )
     }
 }
@@ -438,7 +435,6 @@ fn test_staking_tier_verified_vs_unverified() {
         &symbol_short!("G1"),
         &token,
         &now,
-        &1u32,
     );
     let gold_mentor_before = tok.balance(&mentor_gold);
     let treasury_before = tok.balance(&treasury);
@@ -455,7 +451,6 @@ fn test_staking_tier_verified_vs_unverified() {
         &symbol_short!("S1"),
         &token,
         &now,
-        &1u32,
     );
     let std_mentor_before = tok.balance(&mentor_std);
     let treasury_before2 = tok.balance(&treasury);
@@ -485,7 +480,6 @@ fn test_multiple_sessions_tracked_independently() {
         &symbol_short!("SES1"),
         &f.token,
         &now,
-        &1u32,
     );
     let eid2 = f.escrow.create_escrow(
         &f.mentor,
@@ -494,7 +488,6 @@ fn test_multiple_sessions_tracked_independently() {
         &symbol_short!("SES2"),
         &f.token,
         &now,
-        &1u32,
     );
     let eid3 = f.escrow.create_escrow(
         &f.mentor,
@@ -503,7 +496,6 @@ fn test_multiple_sessions_tracked_independently() {
         &symbol_short!("SES3"),
         &f.token,
         &now,
-        &1u32,
     );
 
     assert_eq!(f.escrow.get_escrow_count(), 3);
@@ -552,7 +544,6 @@ fn test_auto_release_after_session_end() {
         &symbol_short!("SES1"),
         &f.token,
         &(now + 60),
-        &1u32,
     );
 
     // Before window: must fail

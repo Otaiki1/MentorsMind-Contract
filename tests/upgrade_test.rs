@@ -277,9 +277,7 @@ impl EscrowContractV1 {
 }
 
 fn create_token<'a>(env: &'a Env, admin: &Address) -> (Address, StellarAssetClient<'a>) {
-    let token_address = env
-        .register_stellar_asset_contract_v2(admin.clone())
-        .address();
+    let token_address = env.register_stellar_asset_contract_v2(admin.clone()).address();
     let sac = StellarAssetClient::new(env, &token_address);
     (token_address, sac)
 }
@@ -307,27 +305,12 @@ fn test_upgrade_path_preserves_storage_and_enables_new_features() {
     approved.push_back(token_address.clone());
     v1.initialize(&admin, &treasury, &500u32, &approved, &0u64);
     let now = env.ledger().timestamp();
-    let _id2 = v1.create_escrow(
-        &mentor,
-        &learner,
-        &1_000,
-        &symbol_short!("S2"),
-        &token_address,
-        &now,
-    );
+    let _id2 = v1.create_escrow(&mentor, &learner, &1_000, &symbol_short!("S2"), &token_address, &now);
     env.register_contract(Some(&fixed_id), EscrowContractV2);
     let v2 = EscrowV2Client::new(&env, &fixed_id);
     assert_eq!(v2.get_auto_release_delay(), 72 * 60 * 60);
     let token_client = TokenClient::new(&env, &token_address);
-    let eid_new = v2.create_escrow(
-        &mentor,
-        &learner,
-        &1_000,
-        &symbol_short!("S3"),
-        &token_address,
-        &now,
-        &1u32,
-    );
+    let eid_new = v2.create_escrow(&mentor, &learner, &1_000, &symbol_short!("S3"), &token_address, &now);
     let before_mentor = token_client.balance(&mentor);
     let before_treasury = token_client.balance(&treasury);
     v2.release_funds(&learner, &eid_new);

@@ -63,3 +63,101 @@ fn test_governance_state_machine_transitions() {
         }
     }
 }
+
+#[test]
+fn test_subscription_state_machine_transitions() {
+    let env = Env::default();
+    let states = [
+        shared::state_machine::SubscriptionStatus::Trial,
+        shared::state_machine::SubscriptionStatus::Active,
+        shared::state_machine::SubscriptionStatus::GracePeriod,
+        shared::state_machine::SubscriptionStatus::Paused,
+        shared::state_machine::SubscriptionStatus::Cancelled,
+        shared::state_machine::SubscriptionStatus::Expired,
+    ];
+
+    for from in states.iter() {
+        for to in states.iter() {
+            let is_valid = shared::state_machine::SubscriptionStatus::is_valid_transition(&env, from, to);
+            let expected_valid = match (from, to) {
+                (shared::state_machine::SubscriptionStatus::Trial, shared::state_machine::SubscriptionStatus::Active) => true,
+                (shared::state_machine::SubscriptionStatus::Trial, shared::state_machine::SubscriptionStatus::Cancelled) => true,
+                (shared::state_machine::SubscriptionStatus::Active, shared::state_machine::SubscriptionStatus::GracePeriod) => true,
+                (shared::state_machine::SubscriptionStatus::Active, shared::state_machine::SubscriptionStatus::Paused) => true,
+                (shared::state_machine::SubscriptionStatus::Active, shared::state_machine::SubscriptionStatus::Cancelled) => true,
+                (shared::state_machine::SubscriptionStatus::GracePeriod, shared::state_machine::SubscriptionStatus::Active) => true,
+                (shared::state_machine::SubscriptionStatus::GracePeriod, shared::state_machine::SubscriptionStatus::Expired) => true,
+                (shared::state_machine::SubscriptionStatus::Paused, shared::state_machine::SubscriptionStatus::Active) => true,
+                (shared::state_machine::SubscriptionStatus::Paused, shared::state_machine::SubscriptionStatus::Cancelled) => true,
+                _ => false,
+            };
+            assert_eq!(
+                is_valid, expected_valid,
+                "Subscription transition validation failed from {:?} to {:?}",
+                from, to
+            );
+        }
+    }
+}
+
+#[test]
+fn test_loan_state_machine_transitions() {
+    let env = Env::default();
+    let states = [
+        shared::state_machine::LoanStatus::Pending,
+        shared::state_machine::LoanStatus::Active,
+        shared::state_machine::LoanStatus::Repaid,
+        shared::state_machine::LoanStatus::Defaulted,
+        shared::state_machine::LoanStatus::Cancelled,
+    ];
+
+    for from in states.iter() {
+        for to in states.iter() {
+            let is_valid = shared::state_machine::LoanStatus::is_valid_transition(&env, from, to);
+            let expected_valid = match (from, to) {
+                (shared::state_machine::LoanStatus::Pending, shared::state_machine::LoanStatus::Active) => true,
+                (shared::state_machine::LoanStatus::Pending, shared::state_machine::LoanStatus::Cancelled) => true,
+                (shared::state_machine::LoanStatus::Active, shared::state_machine::LoanStatus::Repaid) => true,
+                (shared::state_machine::LoanStatus::Active, shared::state_machine::LoanStatus::Defaulted) => true,
+                _ => false,
+            };
+            assert_eq!(
+                is_valid, expected_valid,
+                "Loan transition validation failed from {:?} to {:?}",
+                from, to
+            );
+        }
+    }
+}
+
+#[test]
+fn test_isa_state_machine_transitions() {
+    let env = Env::default();
+    let states = [
+        shared::state_machine::ISAStatus::Pending,
+        shared::state_machine::ISAStatus::StudyPeriod,
+        shared::state_machine::ISAStatus::GracePeriod,
+        shared::state_machine::ISAStatus::Repayment,
+        shared::state_machine::ISAStatus::Completed,
+        shared::state_machine::ISAStatus::Defaulted,
+    ];
+
+    for from in states.iter() {
+        for to in states.iter() {
+            let is_valid = shared::state_machine::ISAStatus::is_valid_transition(&env, from, to);
+            let expected_valid = match (from, to) {
+                (shared::state_machine::ISAStatus::Pending, shared::state_machine::ISAStatus::StudyPeriod) => true,
+                (shared::state_machine::ISAStatus::StudyPeriod, shared::state_machine::ISAStatus::GracePeriod) => true,
+                (shared::state_machine::ISAStatus::GracePeriod, shared::state_machine::ISAStatus::Repayment) => true,
+                (shared::state_machine::ISAStatus::Repayment, shared::state_machine::ISAStatus::Completed) => true,
+                (shared::state_machine::ISAStatus::Repayment, shared::state_machine::ISAStatus::Defaulted) => true,
+                _ => false,
+            };
+            assert_eq!(
+                is_valid, expected_valid,
+                "ISA transition validation failed from {:?} to {:?}",
+                from, to
+            );
+        }
+    }
+}

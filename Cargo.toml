@@ -2,24 +2,15 @@
 resolver = "2"
 members = [
     "escrow",
+    "contracts/governance",
     "contracts/allowance",
-    "contracts/interface_registry",
     "contracts/verification",
     "contracts/oracle",
-    "contracts/payment_router",
-    "contracts/referral",
-    "contracts/session_nft",
-    "contracts/staking",
-    "contracts/subscription_analytics",
     "contracts/timelock",
-    "contracts/treasury",
     "contracts/vesting",
+    "contracts/payment_router",
     "contracts/streak_rewards",
     "contracts/shared",
-    "contracts/mnt-token",
-    "contracts/bridge_receiver",
-    "contracts/escrow_factory",
-    "contracts/credit_score",
     "tests",
 ]
 

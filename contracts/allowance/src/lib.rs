@@ -64,14 +64,8 @@ impl RecurringAllowanceContract {
         env.storage().persistent().set(&key, &record);
 
         env.events().publish(
-            (symbol_short!("allowance"), symbol_short!("auth"), owner),
-            (
-                spender,
-                token,
-                amount_per_period,
-                max_periods,
-                period_seconds,
-            ),
+            (symbol_short!("allowance"), symbol_short!("authorized"), owner),
+            (spender, token, amount_per_period, max_periods, period_seconds),
         );
     }
 
@@ -116,7 +110,11 @@ impl RecurringAllowanceContract {
             spender.clone().into_val(&env),
             amount.into_val(&env),
         ];
-        env.invoke_contract::<()>(&token, &transfer_from_fn, args);
+        env.invoke_contract::<()>(
+            &token,
+            &transfer_from_fn,
+            args,
+        );
 
         record.periods_used = record
             .periods_used
@@ -126,7 +124,7 @@ impl RecurringAllowanceContract {
         env.storage().persistent().set(&key, &record);
 
         env.events().publish(
-            (symbol_short!("allowance"), symbol_short!("pay_pull"), owner),
+            (symbol_short!("allowance"), symbol_short!("payment_pulled"), owner),
             (spender, token, amount, record.periods_used),
         );
     }
@@ -146,12 +144,7 @@ impl RecurringAllowanceContract {
         );
     }
 
-    pub fn get_allowance(
-        env: Env,
-        owner: Address,
-        spender: Address,
-        token: Address,
-    ) -> AllowanceRecord {
+    pub fn get_allowance(env: Env, owner: Address, spender: Address, token: Address) -> AllowanceRecord {
         env.storage()
             .persistent()
             .get(&DataKey::Allowance(owner, spender, token))
@@ -184,13 +177,7 @@ mod tests {
                 .unwrap_or(0)
         }
 
-        pub fn transfer_from(
-            env: Env,
-            _spender: Address,
-            from: Address,
-            to: Address,
-            amount: i128,
-        ) {
+        pub fn transfer_from(env: Env, _spender: Address, from: Address, to: Address, amount: i128) {
             let from_key = (symbol_short!("BAL"), from.clone());
             let to_key = (symbol_short!("BAL"), to.clone());
             let from_balance: i128 = env.storage().persistent().get(&from_key).unwrap_or(0);
@@ -200,12 +187,8 @@ mod tests {
                 panic!("insufficient balance");
             }
 
-            env.storage()
-                .persistent()
-                .set(&from_key, &(from_balance - amount));
-            env.storage()
-                .persistent()
-                .set(&to_key, &(to_balance + amount));
+            env.storage().persistent().set(&from_key, &(from_balance - amount));
+            env.storage().persistent().set(&to_key, &(to_balance + amount));
         }
     }
 
@@ -251,9 +234,6 @@ mod tests {
 
         let owner = Address::generate(&env);
         let spender = Address::generate(&env);
-
-        let token = MockTokenClient::new(&env, &token_id);
-        token.mint(&owner, &1_000);
 
         allowance.authorize(&owner, &spender, &token_id, &100, &5, &60);
         allowance.pull_payment(&spender, &owner, &token_id, &100);

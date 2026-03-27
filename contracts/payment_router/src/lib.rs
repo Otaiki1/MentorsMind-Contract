@@ -1,8 +1,7 @@
 #![no_std]
 
 use soroban_sdk::{
-    contract, contractimpl, contracttype, symbol_short, token, Address, BytesN, Env, IntoVal,
-    Symbol, Vec,
+    contract, contractimpl, contracttype, symbol_short, token, Address, BytesN, Env, Symbol, Vec,
 };
 
 // Source chain constants
@@ -59,7 +58,12 @@ pub struct PaymentRouter;
 #[contractimpl]
 impl PaymentRouter {
     /// Initialize the payment router contract
-    pub fn init(env: Env, admin: Address, escrow_contract: Address, bridge_receiver: Address) {
+    pub fn init(
+        env: Env,
+        admin: Address,
+        escrow_contract: Address,
+        bridge_receiver: Address,
+    ) {
         // Check if already initialized
         if env.storage().instance().has(&DataKey::Config) {
             panic!("Already initialized");
@@ -79,17 +83,17 @@ impl PaymentRouter {
         };
 
         env.storage().instance().set(&DataKey::Config, &config);
-        env.storage()
-            .instance()
-            .set(&DataKey::EscrowIdCounter, &0u64);
+        env.storage().instance().set(&DataKey::EscrowIdCounter, &0u64);
 
         // Emit initialization event
-        env.events()
-            .publish((symbol_short!("router"), symbol_short!("init")), admin);
+        env.events().publish(
+            (symbol_short!("router"), symbol_short!("init")),
+            admin,
+        );
     }
 
     /// Route a payment from any supported chain to create an escrow
-    ///
+    /// 
     /// # Arguments
     /// * `source_chain` - The chain ID where payment originated (0 for Stellar native)
     /// * `source_tx_hash` - The transaction hash on the source chain
@@ -97,7 +101,7 @@ impl PaymentRouter {
     /// * `mentor` - The mentor's address  
     /// * `amount` - The payment amount
     /// * `token` - The token contract address
-    ///
+    /// 
     /// # Returns
     /// * The escrow ID created
     pub fn route_payment(
@@ -137,12 +141,12 @@ impl PaymentRouter {
         }
 
         // Get config
-        let config = Self::get_config(env.clone());
+        let config = Self::get_config(&env);
 
         // For Stellar direct payments, transfer tokens from learner to escrow
         if source_chain == CHAIN_STELLAR {
             let token_client = token::Client::new(&env, &token);
-
+            
             // Verify learner has sufficient balance
             if token_client.balance(&learner) < amount {
                 panic!("Insufficient token balance");
@@ -235,13 +239,13 @@ impl PaymentRouter {
 
     /// Get the list of supported chains
     pub fn get_supported_chains(env: Env) -> Vec<u32> {
-        let config = Self::get_config(env.clone());
+        let config = Self::get_config(&env);
         config.supported_chains
     }
 
     /// Add a supported chain (admin only)
     pub fn add_supported_chain(env: Env, chain_id: u32) {
-        let config = Self::get_config(env.clone());
+        let config = Self::get_config(&env);
         config.admin.require_auth();
 
         // Check if chain already exists
@@ -257,7 +261,7 @@ impl PaymentRouter {
 
     /// Remove a supported chain (admin only)
     pub fn remove_supported_chain(env: Env, chain_id: u32) {
-        let config = Self::get_config(env.clone());
+        let config = Self::get_config(&env);
         config.admin.require_auth();
 
         // Cannot remove Stellar native chain
@@ -279,7 +283,7 @@ impl PaymentRouter {
 
     /// Update escrow contract address (admin only)
     pub fn set_escrow_contract(env: Env, escrow_contract: Address) {
-        let config = Self::get_config(env.clone());
+        let config = Self::get_config(&env);
         config.admin.require_auth();
 
         let mut new_config = config;
@@ -289,7 +293,7 @@ impl PaymentRouter {
 
     /// Update bridge receiver address (admin only)
     pub fn set_bridge_receiver(env: Env, bridge_receiver: Address) {
-        let config = Self::get_config(env.clone());
+        let config = Self::get_config(&env);
         config.admin.require_auth();
 
         let mut new_config = config;
@@ -319,11 +323,11 @@ impl PaymentRouter {
         env: &Env,
         source_chain: u32,
         source_tx_hash: &BytesN<32>,
-        _learner: &Address,
-        _amount: i128,
-        _token: &Address,
+        learner: &Address,
+        amount: i128,
+        token: &Address,
     ) {
-        let config = Self::get_config(env.clone());
+        let config = Self::get_config(env);
 
         // Check if source chain is supported
         let is_supported = config
@@ -391,7 +395,7 @@ impl PaymentRouter {
             .instance()
             .get(&DataKey::EscrowIdCounter)
             .unwrap_or(0);
-
+        
         // Use a simple scheme: alternate between known unique symbols based on counter
         // Since the escrow contract tracks session_id uniqueness, we can cycle through
         // a set of base symbols and rely on the contract's internal counter for true uniqueness
@@ -423,51 +427,47 @@ impl PaymentRouter {
             token: token.clone(),
         };
 
-        env.events()
-            .publish((symbol_short!("router"), symbol_short!("routed")), event);
+        env.events().publish(
+            (symbol_short!("router"), symbol_short!("routed")),
+            event,
+        );
     }
 }
 
 // Unit tests
 #[cfg(test)]
 mod test {
-    extern crate std;
     use super::*;
-    use soroban_sdk::testutils::Address as _;
-    use std::panic::AssertUnwindSafe;
+    use soroban_sdk::testutils::{Address as _, BytesN as _, Events as _};
 
-    fn setup_env() -> (
-        Env,
-        Address,
-        Address,
-        Address,
-        Address,
-        PaymentRouterClient<'static>,
-    ) {
+    fn setup_env() -> (Env, Address, Address, Address, Address) {
         let env = Env::default();
         let admin = Address::generate(&env);
         let escrow_contract = Address::generate(&env);
         let bridge_receiver = Address::generate(&env);
         let token = Address::generate(&env);
 
-        let contract_id = env.register_contract(None, PaymentRouter);
-        let client = PaymentRouterClient::new(&env, &contract_id);
+        // Mock the escrow contract as an account so we can invoke it
+        let escrow_account = Address::generate(&env);
 
-        (env, admin, escrow_contract, bridge_receiver, token, client)
+        (env, admin, escrow_contract, bridge_receiver, token)
     }
 
     #[test]
     fn test_init() {
-        let (_env, admin, escrow_contract, bridge_receiver, _, client) = setup_env();
+        let env = Env::default();
+        let admin = Address::generate(&env);
+        let escrow_contract = Address::generate(&env);
+        let bridge_receiver = Address::generate(&env);
 
-        client.init(&admin, &escrow_contract, &bridge_receiver);
+        PaymentRouterClient::init(&env, &admin, &escrow_contract, &bridge_receiver);
 
-        let config = client.get_config();
+        let config = PaymentRouterClient::get_config(&env);
         assert_eq!(config.admin, admin);
         assert_eq!(config.escrow_contract, escrow_contract);
         assert_eq!(config.bridge_receiver, bridge_receiver);
 
-        let chains = client.get_supported_chains();
+        let chains = PaymentRouterClient::get_supported_chains(&env);
         assert_eq!(chains.len(), 4);
         assert_eq!(chains.get(0).unwrap(), CHAIN_STELLAR);
         assert_eq!(chains.get(1).unwrap(), CHAIN_ETHEREUM);
@@ -476,40 +476,54 @@ mod test {
     #[test]
     #[should_panic(expected = "Already initialized")]
     fn test_double_init() {
-        let (_, admin, escrow_contract, bridge_receiver, _, client) = setup_env();
+        let env = Env::default();
+        let admin = Address::generate(&env);
+        let escrow_contract = Address::generate(&env);
+        let bridge_receiver = Address::generate(&env);
 
-        client.init(&admin, &escrow_contract, &bridge_receiver);
-        client.init(&admin, &escrow_contract, &bridge_receiver);
+        PaymentRouterClient::init(&env, &admin, &escrow_contract, &bridge_receiver);
+        PaymentRouterClient::init(&env, &admin, &escrow_contract, &bridge_receiver);
     }
 
     #[test]
     fn test_add_supported_chain() {
-        let (_, admin, escrow_contract, bridge_receiver, _, client) = setup_env();
+        let env = Env::default();
+        let admin = Address::generate(&env);
+        let escrow_contract = Address::generate(&env);
+        let bridge_receiver = Address::generate(&env);
 
-        client.init(&admin, &escrow_contract, &bridge_receiver);
-        client.add_supported_chain(&23);
+        PaymentRouterClient::init(&env, &admin, &escrow_contract, &bridge_receiver);
 
-        let chains = client.get_supported_chains();
+        // Add a new chain (e.g., Arbitrum = 23)
+        PaymentRouterClient::add_supported_chain(&env, &23);
+
+        let chains = PaymentRouterClient::get_supported_chains(&env);
         assert_eq!(chains.len(), 5);
     }
 
     #[test]
     #[should_panic(expected = "Chain already supported")]
     fn test_add_duplicate_chain() {
-        let (_, admin, escrow_contract, bridge_receiver, _, client) = setup_env();
+        let env = Env::default();
+        let admin = Address::generate(&env);
+        let escrow_contract = Address::generate(&env);
+        let bridge_receiver = Address::generate(&env);
 
-        client.init(&admin, &escrow_contract, &bridge_receiver);
-        client.add_supported_chain(&CHAIN_ETHEREUM);
+        PaymentRouterClient::init(&env, &admin, &escrow_contract, &bridge_receiver);
+        PaymentRouterClient::add_supported_chain(&env, &CHAIN_ETHEREUM);
     }
 
     #[test]
     fn test_remove_supported_chain() {
-        let (_, admin, escrow_contract, bridge_receiver, _, client) = setup_env();
+        let env = Env::default();
+        let admin = Address::generate(&env);
+        let escrow_contract = Address::generate(&env);
+        let bridge_receiver = Address::generate(&env);
 
-        client.init(&admin, &escrow_contract, &bridge_receiver);
-        client.remove_supported_chain(&CHAIN_BSC);
+        PaymentRouterClient::init(&env, &admin, &escrow_contract, &bridge_receiver);
+        PaymentRouterClient::remove_supported_chain(&env, &CHAIN_BSC);
 
-        let chains = client.get_supported_chains();
+        let chains = PaymentRouterClient::get_supported_chains(&env);
         assert_eq!(chains.len(), 3);
 
         let contains_bsc = chains.iter().any(|c| c == CHAIN_BSC);
@@ -519,115 +533,166 @@ mod test {
     #[test]
     #[should_panic(expected = "Cannot remove Stellar native chain")]
     fn test_remove_stellar_chain() {
-        let (_, admin, escrow_contract, bridge_receiver, _, client) = setup_env();
+        let env = Env::default();
+        let admin = Address::generate(&env);
+        let escrow_contract = Address::generate(&env);
+        let bridge_receiver = Address::generate(&env);
 
-        client.init(&admin, &escrow_contract, &bridge_receiver);
-        client.remove_supported_chain(&CHAIN_STELLAR);
+        PaymentRouterClient::init(&env, &admin, &escrow_contract, &bridge_receiver);
+        PaymentRouterClient::remove_supported_chain(&env, &CHAIN_STELLAR);
     }
 
     #[test]
     fn test_is_tx_processed_not_found() {
-        let (env, admin, escrow_contract, bridge_receiver, _, client) = setup_env();
+        let env = Env::default();
+        let admin = Address::generate(&env);
+        let escrow_contract = Address::generate(&env);
+        let bridge_receiver = Address::generate(&env);
 
-        client.init(&admin, &escrow_contract, &bridge_receiver);
+        PaymentRouterClient::init(&env, &admin, &escrow_contract, &bridge_receiver);
 
         let tx_hash = BytesN::from_array(&env, &[0u8; 32]);
-        assert!(!client.is_tx_processed(&tx_hash));
+        assert!(!PaymentRouterClient::is_tx_processed(&env, &tx_hash));
     }
 
     #[test]
     #[should_panic(expected = "Source chain not supported")]
     fn test_route_payment_unsupported_chain() {
-        let (env, admin, escrow_contract, bridge_receiver, _, client) = setup_env();
+        let env = Env::default();
+        let admin = Address::generate(&env);
+        let escrow_contract = Address::generate(&env);
+        let bridge_receiver = Address::generate(&env);
         let learner = Address::generate(&env);
         let mentor = Address::generate(&env);
         let token = Address::generate(&env);
 
-        client.init(&admin, &escrow_contract, &bridge_receiver);
+        PaymentRouterClient::init(&env, &admin, &escrow_contract, &bridge_receiver);
 
         let tx_hash = BytesN::from_array(&env, &[1u8; 32]);
-
+        
         // Try to route from unsupported chain (99)
-        client.route_payment(&99, &tx_hash, &learner, &mentor, &1000, &token);
+        PaymentRouterClient::route_payment(
+            &env,
+            &99,
+            &tx_hash,
+            &learner,
+            &mentor,
+            &1000,
+            &token,
+        );
     }
 
     #[test]
     #[should_panic(expected = "Amount must be positive")]
     fn test_route_payment_zero_amount() {
-        let (env, admin, escrow_contract, bridge_receiver, _, client) = setup_env();
+        let env = Env::default();
+        let admin = Address::generate(&env);
+        let escrow_contract = Address::generate(&env);
+        let bridge_receiver = Address::generate(&env);
         let learner = Address::generate(&env);
         let mentor = Address::generate(&env);
         let token = Address::generate(&env);
 
-        client.init(&admin, &escrow_contract, &bridge_receiver);
+        PaymentRouterClient::init(&env, &admin, &escrow_contract, &bridge_receiver);
 
         let tx_hash = BytesN::from_array(&env, &[1u8; 32]);
-
-        client.route_payment(&CHAIN_STELLAR, &tx_hash, &learner, &mentor, &0, &token);
+        
+        PaymentRouterClient::route_payment(
+            &env,
+            &CHAIN_STELLAR,
+            &tx_hash,
+            &learner,
+            &mentor,
+            &0,
+            &token,
+        );
     }
 
     #[test]
     #[should_panic(expected = "Bridge transaction not verified")]
     fn test_route_bridged_payment_not_verified() {
-        let (env, admin, escrow_contract, bridge_receiver, _, client) = setup_env();
+        let env = Env::default();
+        let admin = Address::generate(&env);
+        let escrow_contract = Address::generate(&env);
+        let bridge_receiver = Address::generate(&env);
         let learner = Address::generate(&env);
         let mentor = Address::generate(&env);
         let token = Address::generate(&env);
 
-        client.init(&admin, &escrow_contract, &bridge_receiver);
+        PaymentRouterClient::init(&env, &admin, &escrow_contract, &bridge_receiver);
 
         let tx_hash = BytesN::from_array(&env, &[1u8; 32]);
-
+        
         // Try to route from Ethereum without bridge verification
-        client.route_payment(&CHAIN_ETHEREUM, &tx_hash, &learner, &mentor, &1000, &token);
+        PaymentRouterClient::route_payment(
+            &env,
+            &CHAIN_ETHEREUM,
+            &tx_hash,
+            &learner,
+            &mentor,
+            &1000,
+            &token,
+        );
     }
 
     #[test]
     fn test_get_route_not_found() {
-        let (env, admin, escrow_contract, bridge_receiver, _, client) = setup_env();
+        let env = Env::default();
+        let admin = Address::generate(&env);
+        let escrow_contract = Address::generate(&env);
+        let bridge_receiver = Address::generate(&env);
 
-        client.init(&admin, &escrow_contract, &bridge_receiver);
+        PaymentRouterClient::init(&env, &admin, &escrow_contract, &bridge_receiver);
 
         let tx_hash = BytesN::from_array(&env, &[0u8; 32]);
-
+        
         // This should panic because route doesn't exist
-        let result = std::panic::catch_unwind(AssertUnwindSafe(|| {
-            client.get_route(&tx_hash);
-        }));
+        let result = std::panic::catch_unwind(|| {
+            PaymentRouterClient::get_route(&env, &tx_hash);
+        });
         assert!(result.is_err());
     }
 
     #[test]
     fn test_set_escrow_contract() {
-        let (env, admin, escrow_contract, bridge_receiver, _, client) = setup_env();
+        let env = Env::default();
+        let admin = Address::generate(&env);
+        let escrow_contract = Address::generate(&env);
+        let bridge_receiver = Address::generate(&env);
         let new_escrow = Address::generate(&env);
 
-        client.init(&admin, &escrow_contract, &bridge_receiver);
-        client.set_escrow_contract(&new_escrow);
+        PaymentRouterClient::init(&env, &admin, &escrow_contract, &bridge_receiver);
+        PaymentRouterClient::set_escrow_contract(&env, &admin, &new_escrow);
 
-        let config = client.get_config();
+        let config = PaymentRouterClient::get_config(&env);
         assert_eq!(config.escrow_contract, new_escrow);
     }
 
     #[test]
     fn test_set_bridge_receiver() {
-        let (env, admin, escrow_contract, bridge_receiver, _, client) = setup_env();
+        let env = Env::default();
+        let admin = Address::generate(&env);
+        let escrow_contract = Address::generate(&env);
+        let bridge_receiver = Address::generate(&env);
         let new_bridge = Address::generate(&env);
 
-        client.init(&admin, &escrow_contract, &bridge_receiver);
-        client.set_bridge_receiver(&new_bridge);
+        PaymentRouterClient::init(&env, &admin, &escrow_contract, &bridge_receiver);
+        PaymentRouterClient::set_bridge_receiver(&env, &admin, &new_bridge);
 
-        let config = client.get_config();
+        let config = PaymentRouterClient::get_config(&env);
         assert_eq!(config.bridge_receiver, new_bridge);
     }
 
     #[test]
     fn test_get_route_count_initial() {
-        let (_, admin, escrow_contract, bridge_receiver, _, client) = setup_env();
+        let env = Env::default();
+        let admin = Address::generate(&env);
+        let escrow_contract = Address::generate(&env);
+        let bridge_receiver = Address::generate(&env);
 
-        client.init(&admin, &escrow_contract, &bridge_receiver);
+        PaymentRouterClient::init(&env, &admin, &escrow_contract, &bridge_receiver);
 
-        let count = client.get_route_count();
+        let count = PaymentRouterClient::get_route_count(&env);
         assert_eq!(count, 0);
     }
 }
