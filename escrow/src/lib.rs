@@ -140,6 +140,22 @@ pub struct EscrowReleasedEventData {
     pub token_address: Address,
 }
 
+// ---------------------------------------------------------------------------
+// Storage keys
+// ---------------------------------------------------------------------------
+
+const ESCROW_COUNT: Symbol = symbol_short!("ESC_CNT");
+const GROUP_ESCROW_COUNT: Symbol = symbol_short!("G_ESCNT");
+const MILESTONE_ESCROW_COUNT: Symbol = symbol_short!("MESC_CNT");
+const ADMIN: Symbol = symbol_short!("ADMIN");
+const TREASURY: Symbol = symbol_short!("TREASURY");
+const FEE_BPS: Symbol = symbol_short!("FEE_BPS");
+const AUTO_REL_DLY: Symbol = symbol_short!("AR_DELAY");
+const SESSION_KEY: Symbol = symbol_short!("SESSION");
+const MENTOR_ESCROWS: Symbol = symbol_short!("MNT_ESC");
+const LEARNER_ESCROWS: Symbol = symbol_short!("LRN_ESC");
+const KYC_REGISTRY: Symbol = symbol_short!("KYC_REG");
+const SANCTIONS: Symbol = symbol_short!("SANCTION");
 const MAX_FEE_BPS: u32 = 1_000;
 const DEFAULT_AUTO_RELEASE_DELAY: u64 = 72 * 60 * 60;
 const EXTEND_TTL_THRESHOLD: u32 = 500_000;
@@ -147,6 +163,16 @@ const EXTEND_TTL_BUMP: u32 = 1_000_000;
 
 #[contract]
 pub struct EscrowContract;
+
+#[soroban_sdk::contractclient(name = "KycRegistryClient")]
+pub trait KycRegistryTrait {
+    fn is_kyc_valid(env: Env, user: Address, min_level: KycLevel) -> bool;
+}
+
+#[soroban_sdk::contractclient(name = "SanctionsClient")]
+pub trait SanctionsTrait {
+    fn is_sanctioned(env: Env, address: Address) -> bool;
+}
 
 #[contractimpl]
 impl EscrowContract {
@@ -157,6 +183,7 @@ impl EscrowContract {
         fee_bps: u32,
         approved_tokens: Vec<Address>,
         auto_release_delay_secs: u64,
+        sanctions_contract: Option<Address>,
     ) {
         if env.storage().persistent().has(&DataKey::Admin) {
             panic!("Already initialized");
@@ -183,6 +210,10 @@ impl EscrowContract {
             .set(&DataKey::AutoRelDelay, &delay);
         for token_addr in approved_tokens.iter() {
             Self::_set_token_approved(&env, &token_addr, true);
+        }
+
+        if let Some(sc) = sanctions_contract {
+            env.storage().persistent().set(&SANCTIONS, &sc);
         }
     }
 
@@ -249,10 +280,56 @@ impl EscrowContract {
         session_end_time: u64,
         total_sessions: u32,
     ) -> u64 {
-        Self::_create_escrow_internal(
-            &env,
-            mentor,
-            learner,
+        learner.require_auth();
+        // Sanctions screening
+        if let Some(sc_addr) = env.storage().persistent().get::<Symbol, Address>(&SANCTIONS) {
+            let sc = SanctionsClient::new(&env, &sc_addr);
+            if sc.is_sanctioned(&mentor) {
+                panic!("mentor is sanctioned");
+            }
+            if sc.is_sanctioned(&learner) {
+                panic!("learner is sanctioned");
+            }
+        }
+        if amount <= 0 {
+            panic!("Amount must be greater than zero");
+        }
+        if !Self::_is_token_approved(&env, &token_address) {
+            panic!("Token not approved");
+        }
+        if total_sessions == 0 {
+            panic!("total_sessions must be at least 1");
+        }
+
+        let session_dup_key = (SESSION_KEY, session_id.clone());
+        if env.storage().persistent().has(&session_dup_key) {
+            panic!("Session ID already used");
+        }
+
+        let token_client = token::Client::new(&env, &token_address);
+        if token_client.balance(&learner) < amount {
+            panic!("Insufficient token balance");
+        }
+
+        let auto_release_delay: u64 = env
+            .storage()
+            .persistent()
+            .get(&AUTO_REL_DLY)
+            .unwrap_or(DEFAULT_AUTO_RELEASE_DELAY);
+
+        let mut count: u64 = env.storage().persistent().get(&ESCROW_COUNT).unwrap_or(0);
+        count += 1;
+        env.storage().persistent().set(&ESCROW_COUNT, &count);
+        env.storage()
+            .persistent()
+            .extend_ttl(&ESCROW_COUNT, ESCROW_TTL_THRESHOLD, ESCROW_TTL_BUMP);
+
+        token_client.transfer(&learner, &env.current_contract_address(), &amount);
+
+        let escrow = Escrow {
+            id: count,
+            mentor: mentor.clone(),
+            learner: learner.clone(),
             amount,
             session_id,
             token_address.clone(),

@@ -32,6 +32,22 @@ pub struct VerificationRevokedEventData {
     pub revoked: bool,
 }
 
+#[contracttype]
+#[derive(Clone)]
+pub enum DataKey {
+    Admin,
+    Verification(Address),
+    Tier(Address),
+}
+
+#[contracttype]
+#[derive(Clone)]
+pub enum DataKey {
+    Admin,
+    Verification(Address),
+    Tier(Address),
+}
+
 #[contract]
 pub struct VerificationContract;
 
