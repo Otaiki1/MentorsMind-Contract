@@ -18,6 +18,7 @@ members = [
     "contracts/payment_router",
     "contracts/streak_rewards",
     "contracts/shared",
+    "contracts/proposal_templates",
     "contracts/upgrade_registry",
     "contracts/rate_limiter",
     "contracts/performance_bond",
