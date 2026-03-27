@@ -32,9 +32,13 @@ pub struct VerificationRevokedEventData {
     pub revoked: bool,
 }
 
-const ADMIN: Symbol = symbol_short!("ADMIN");
-const VER_KEY: Symbol = symbol_short!("VER");
-const TIER_KEY: Symbol = symbol_short!("TIER");
+#[contracttype]
+#[derive(Clone)]
+pub enum DataKey {
+    Admin,
+    Verification(Address),
+    Tier(Address),
+}
 
 #[contracttype]
 #[derive(Clone)]
