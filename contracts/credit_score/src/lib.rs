@@ -94,35 +94,56 @@ impl CreditScoreContract {
             panic!("Already initialized");
         }
         env.storage().persistent().set(&DataKey::Admin, &admin);
-        env.storage().persistent().set(&DataKey::EscrowContract, &escrow);
-        env.storage().persistent().set(&DataKey::StakingContract, &staking);
+        env.storage()
+            .persistent()
+            .set(&DataKey::EscrowContract, &escrow);
+        env.storage()
+            .persistent()
+            .set(&DataKey::StakingContract, &staking);
     }
 
     pub fn get_score(env: Env, user: Address) -> u32 {
-        env.storage().persistent().get(&DataKey::UserScore(user)).unwrap_or(MIN_SCORE)
+        env.storage()
+            .persistent()
+            .get(&DataKey::UserScore(user))
+            .unwrap_or(MIN_SCORE)
     }
 
     pub fn get_score_breakdown(env: Env, user: Address) -> ScoreBreakdown {
-        env.storage().persistent().get(&DataKey::UserBreakdown(user)).unwrap_or(ScoreBreakdown {
-            payment_history: 0,
-            session_completion: 0,
-            account_age: 0,
-            staking_amount: 0,
-            dispute_history: 0,
-        })
+        env.storage()
+            .persistent()
+            .get(&DataKey::UserBreakdown(user))
+            .unwrap_or(ScoreBreakdown {
+                payment_history: 0,
+                session_completion: 0,
+                account_age: 0,
+                staking_amount: 0,
+                dispute_history: 0,
+            })
     }
 
     pub fn refresh_score(env: Env, user: Address) {
-        let last_update: u64 = env.storage().persistent().get(&DataKey::LastUpdate(user.clone())).unwrap_or(0);
+        let last_update: u64 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::LastUpdate(user.clone()))
+            .unwrap_or(0);
         if env.ledger().timestamp() < last_update + DAY_SECONDS {
             panic!("Rate limited: once per day");
         }
 
         let (score, breakdown) = Self::do_compute(env.clone(), user.clone());
-        
-        env.storage().persistent().set(&DataKey::UserScore(user.clone()), &score);
-        env.storage().persistent().set(&DataKey::UserBreakdown(user.clone()), &breakdown);
-        env.storage().persistent().set(&DataKey::LastUpdate(user.clone()), &env.ledger().timestamp());
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::UserScore(user.clone()), &score);
+        env.storage()
+            .persistent()
+            .set(&DataKey::UserBreakdown(user.clone()), &breakdown);
+        env.storage().persistent().set(
+            &DataKey::LastUpdate(user.clone()),
+            &env.ledger().timestamp(),
+        );
 
         env.events().publish(
             (symbol_short!("score"), symbol_short!("updated"), user),
@@ -138,12 +159,28 @@ impl CreditScoreContract {
 
 impl CreditScoreContract {
     fn do_compute(env: Env, user: Address) -> (u32, ScoreBreakdown) {
-        let escrow_addr: Address = env.storage().persistent().get(&DataKey::EscrowContract).unwrap();
-        let staking_addr: Address = env.storage().persistent().get(&DataKey::StakingContract).unwrap();
+        let escrow_addr: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::EscrowContract)
+            .unwrap();
+        let staking_addr: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::StakingContract)
+            .unwrap();
 
         // 1. Fetch historical data from Escrow
-        let mentor_list: Vec<Escrow> = env.invoke_contract(&escrow_addr, &symbol_short!("mentor"), (user.clone(), 0u32, 50u32).into_val(&env));
-        let learner_list: Vec<Escrow> = env.invoke_contract(&escrow_addr, &symbol_short!("learner"), (user.clone(), 0u32, 50u32).into_val(&env));
+        let mentor_list: Vec<Escrow> = env.invoke_contract(
+            &escrow_addr,
+            &symbol_short!("mentor"),
+            (user.clone(), 0u32, 50u32).into_val(&env),
+        );
+        let learner_list: Vec<Escrow> = env.invoke_contract(
+            &escrow_addr,
+            &symbol_short!("learner"),
+            (user.clone(), 0u32, 50u32).into_val(&env),
+        );
 
         let mut total_count = 0;
         let mut released_count = 0;
@@ -171,18 +208,38 @@ impl CreditScoreContract {
         }
 
         // 2. Fetch Staking
-        let stake_amount = match env.try_invoke_contract::<StakeRecord, soroban_sdk::Error>(&staking_addr, &symbol_short!("stake"), (user,).into_val(&env)) {
+        let stake_amount = match env.try_invoke_contract::<StakeRecord, soroban_sdk::Error>(
+            &staking_addr,
+            &symbol_short!("stake"),
+            (user,).into_val(&env),
+        ) {
             Ok(Ok(r)) => r.amount,
             _ => 0i128,
         };
 
         // 3. Calculation (Fixed point 10000 -> /10 for scores)
-        let p_hist = if total_count > 0 { (released_count * 1925 / total_count) as u32 } else { 0 };
-        let s_comp = if sessions_total > 0 { (sessions_done * 1650 / sessions_total) as u32 } else { 0 };
+        let p_hist = if total_count > 0 {
+            (released_count * 1925 / total_count) as u32
+        } else {
+            0
+        };
+        let s_comp = if sessions_total > 0 {
+            (sessions_done * 1650 / sessions_total) as u32
+        } else {
+            0
+        };
         let age_days = (env.ledger().timestamp().saturating_sub(first_time)) / 86400;
-        let age_pts = if total_count > 0 { ((age_days as u32).min(365) * 825 / 365) as u32 } else { 0 };
+        let age_pts = if total_count > 0 {
+            ((age_days as u32).min(365) * 825 / 365) as u32
+        } else {
+            0
+        };
         let stake_pts = (stake_amount.max(0) as u32).min(2000) * 550 / 2000;
-        let disp_pts = if total_count > 0 { ((total_count - dispute_count) * 550 / total_count) as u32 } else { 0 };
+        let disp_pts = if total_count > 0 {
+            ((total_count - dispute_count) * 550 / total_count) as u32
+        } else {
+            0
+        };
 
         let breakdown = ScoreBreakdown {
             payment_history: p_hist / 10,
@@ -215,14 +272,32 @@ mod test {
         pub fn mentor(env: Env, _u: Address, _p: u32, _ps: u32) -> Vec<Escrow> {
             let mut v = Vec::new(&env);
             v.push_back(Escrow {
-                id: 1, mentor: Address::generate(&env), learner: Address::generate(&env), amount: 1000, session_id: symbol_short!("S1"),
-                status: EscrowStatus::Released, created_at: env.ledger().timestamp() - (100 * 86400), token_address: Address::generate(&env), platform_fee: 0, net_amount: 1000,
-                session_end_time: 0, auto_release_delay: 0, dispute_reason: symbol_short!("none"), resolved_at: 0, usd_amount: 0,
-                quoted_token_amount: 0, send_asset: Address::generate(&env), dest_asset: Address::generate(&env), total_sessions: 10, sessions_completed: 10,
+                id: 1,
+                mentor: Address::generate(&env),
+                learner: Address::generate(&env),
+                amount: 1000,
+                session_id: symbol_short!("S1"),
+                status: EscrowStatus::Released,
+                created_at: env.ledger().timestamp() - (100 * 86400),
+                token_address: Address::generate(&env),
+                platform_fee: 0,
+                net_amount: 1000,
+                session_end_time: 0,
+                auto_release_delay: 0,
+                dispute_reason: symbol_short!("none"),
+                resolved_at: 0,
+                usd_amount: 0,
+                quoted_token_amount: 0,
+                send_asset: Address::generate(&env),
+                dest_asset: Address::generate(&env),
+                total_sessions: 10,
+                sessions_completed: 10,
             });
             v
         }
-        pub fn learner(env: Env, _u: Address, _p: u32, _ps: u32) -> Vec<Escrow> { Vec::new(&env) }
+        pub fn learner(env: Env, _u: Address, _p: u32, _ps: u32) -> Vec<Escrow> {
+            Vec::new(&env)
+        }
     }
 
     #[contract]
@@ -230,7 +305,13 @@ mod test {
     #[contractimpl]
     impl MockStaking {
         pub fn stake(_env: Env, m: Address) -> StakeRecord {
-            StakeRecord { mentor: m, amount: 2000, staked_at: 0, unlock_at: 0, tier: 3 }
+            StakeRecord {
+                mentor: m,
+                amount: 2000,
+                staked_at: 0,
+                unlock_at: 0,
+                tier: 3,
+            }
         }
     }
 
@@ -244,14 +325,14 @@ mod test {
         let cid = env.register_contract(None, CreditScoreContract);
         let client = CreditScoreContractClient::new(&env, &cid);
         client.initialize(&admin, &escrow, &staking);
-        
+
         let user = Address::generate(&env);
         client.refresh_score(&user);
         let score = client.get_score(&user);
-        
+
         // Expected: 300 (base) + 192 (pay) + 165 (sess) + 22 (age) + 55 (stake) + 55 (disp) = 789
         assert!(score >= 780 && score <= 800, "Expected ~789, got {}", score);
-        
+
         let breakdown = client.get_score_breakdown(&user);
         assert_eq!(breakdown.staking_amount, 55);
         assert_eq!(breakdown.session_completion, 165);
@@ -266,7 +347,7 @@ mod test {
         let cid = env.register_contract(None, CreditScoreContract);
         let client = CreditScoreContractClient::new(&env, &cid);
         client.initialize(&admin, &escrow, &staking);
-        
+
         let user = Address::generate(&env);
         assert_eq!(client.get_score(&user), 300);
     }

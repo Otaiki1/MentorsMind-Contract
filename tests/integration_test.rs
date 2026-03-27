@@ -13,10 +13,10 @@ use soroban_sdk::{
     symbol_short,
     testutils::{Address as _, Events, Ledger},
     token::{Client as TokenClient, StellarAssetClient},
-    Address, BytesN, Env, TryFromVal, Vec,
+    Address, BytesN, Env, Symbol, TryFromVal, Vec,
 };
 
-use mentorminds_escrow::{EscrowContract, EscrowContractClient, EscrowStatus};
+use mentorminds_escrow::{EscrowContract, EscrowContractClient, EscrowParams, EscrowStatus};
 use mentorminds_verification::{VerificationContract, VerificationContractClient};
 
 // ---------------------------------------------------------------------------
@@ -25,7 +25,9 @@ use mentorminds_verification::{VerificationContract, VerificationContractClient}
 
 /// Registers a Stellar Asset Contract and returns its address + SAC client.
 fn create_token<'a>(env: &'a Env, admin: &Address) -> (Address, StellarAssetClient<'a>) {
-    let addr = env.register_stellar_asset_contract(admin.clone());
+    let addr = env
+        .register_stellar_asset_contract_v2(admin.clone())
+        .address();
     (addr.clone(), StellarAssetClient::new(env, &addr))
 }
 
@@ -107,6 +109,7 @@ impl<'a> Fixture<'a> {
             &symbol_short!("SES1"),
             &self.token,
             &now,
+            &1u32,
         )
     }
 }
@@ -284,35 +287,28 @@ fn test_event_order_full_lifecycle() {
 
     let all_events = env.events().all();
 
-    // Collect topic-0 symbols from contract events (skip system/token events)
-    let escrow_events: std::vec::Vec<_> = all_events
-        .iter()
-        .filter_map(|(_, topics, _)| {
-            // topics is a Vec<Val>; first element is the discriminant symbol
-            let t: soroban_sdk::Vec<soroban_sdk::Val> = topics;
-            if t.len() >= 1 {
-                let first: soroban_sdk::Val = t.get(0).unwrap();
-                // Try to interpret as Symbol using TryFromVal trait
-                soroban_sdk::Symbol::try_from_val(&env, &first).ok()
-            } else {
-                None
+    // Escrow lifecycle: topics include (Escrow, Created, id) then (Escrow, Released, id)
+    let mut created_pos: Option<usize> = None;
+    let mut released_pos: Option<usize> = None;
+    for (i, (_, topics, _)) in all_events.iter().enumerate() {
+        for j in 0..topics.len() {
+            let v = topics.get(j).unwrap();
+            if let Ok(s) = soroban_sdk::Symbol::try_from_val(&env, &v) {
+                if s == symbol_short!("Created") {
+                    created_pos = Some(i);
+                }
+                if s == symbol_short!("Released") {
+                    released_pos = Some(i);
+                }
             }
-        })
-        .collect();
+        }
+    }
 
-    // We expect at minimum a "created" event followed by a "released" event
-    let created_pos = escrow_events
-        .iter()
-        .position(|s| *s == symbol_short!("created"));
-    let released_pos = escrow_events
-        .iter()
-        .position(|s| *s == symbol_short!("released"));
-
-    assert!(created_pos.is_some(), "must emit 'created' event");
-    assert!(released_pos.is_some(), "must emit 'released' event");
+    assert!(created_pos.is_some(), "must emit Created event");
+    assert!(released_pos.is_some(), "must emit Released event");
     assert!(
         created_pos.unwrap() < released_pos.unwrap(),
-        "'created' must precede 'released'"
+        "Created must precede Released"
     );
 }
 
@@ -435,6 +431,7 @@ fn test_staking_tier_verified_vs_unverified() {
         &symbol_short!("G1"),
         &token,
         &now,
+        &1u32,
     );
     let gold_mentor_before = tok.balance(&mentor_gold);
     let treasury_before = tok.balance(&treasury);
@@ -451,6 +448,7 @@ fn test_staking_tier_verified_vs_unverified() {
         &symbol_short!("S1"),
         &token,
         &now,
+        &1u32,
     );
     let std_mentor_before = tok.balance(&mentor_std);
     let treasury_before2 = tok.balance(&treasury);
@@ -480,6 +478,7 @@ fn test_multiple_sessions_tracked_independently() {
         &symbol_short!("SES1"),
         &f.token,
         &now,
+        &1u32,
     );
     let eid2 = f.escrow.create_escrow(
         &f.mentor,
@@ -488,6 +487,7 @@ fn test_multiple_sessions_tracked_independently() {
         &symbol_short!("SES2"),
         &f.token,
         &now,
+        &1u32,
     );
     let eid3 = f.escrow.create_escrow(
         &f.mentor,
@@ -496,6 +496,7 @@ fn test_multiple_sessions_tracked_independently() {
         &symbol_short!("SES3"),
         &f.token,
         &now,
+        &1u32,
     );
 
     assert_eq!(f.escrow.get_escrow_count(), 3);
@@ -544,6 +545,7 @@ fn test_auto_release_after_session_end() {
         &symbol_short!("SES1"),
         &f.token,
         &(now + 60),
+        &1u32,
     );
 
     // Before window: must fail

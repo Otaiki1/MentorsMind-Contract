@@ -2,7 +2,7 @@
 
 use soroban_sdk::token::TokenInterface;
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, symbol_short, Address, Env, String, Symbol, IntoVal,
+    contract, contracterror, contractimpl, contracttype, symbol_short, Address, Env, String, Symbol,
 };
 use soroban_token_sdk::metadata::TokenMetadata;
 
@@ -177,12 +177,6 @@ impl MNTToken {
             panic!("Insufficient balance");
         }
 
-        let total_supply: i128 = env
-            .storage()
-            .persistent()
-            .get(&DataKey::TotalSupply)
-            .unwrap_or(0);
-
         env.events().publish(
             (Symbol::new(&env, "MNTToken"), Symbol::new(&env, "Burn"), from.clone()),
             BurnEventData { amount },
@@ -310,13 +304,6 @@ impl TokenInterface for MNTToken {
             (Symbol::new(&env, "MNTToken"), Symbol::new(&env, "Transfer"), from.clone()),
             TransferEventData { to, amount },
         );
-        env.storage()
-            .persistent()
-            .set(&DataKey::Balance(from.clone()), &(from_balance - amount));
-        env.storage()
-            .persistent()
-            .set(&DataKey::Balance(to.clone()), &(to_balance + amount));
-
         env.events()
             .publish((symbol_short!("transfer"), from, to), amount);
     }

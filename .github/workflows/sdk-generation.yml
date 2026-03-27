@@ -11,6 +11,9 @@ on:
       - 'contracts/**'
       - 'escrow/**'
 
+env:
+  SOROBAN_CLI_VERSION: "21.0.0"
+
 jobs:
   generate-sdk:
     runs-on: ubuntu-latest
@@ -30,6 +33,10 @@ jobs:
 
       - name: Build Contracts
         run: cargo build --workspace --target wasm32-unknown-unknown --release
+
+      - name: Install Stellar CLI
+        run: |
+          cargo install --locked stellar-cli --version $SOROBAN_CLI_VERSION
 
       - name: Install Dependencies
         run: npm ci

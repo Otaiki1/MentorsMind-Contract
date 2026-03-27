@@ -1,5 +1,7 @@
 #![no_std]
-use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, token, Address, Env, Symbol, Vec, IntoVal};
+use soroban_sdk::{
+    contract, contractimpl, contracttype, symbol_short, token, Address, Env, IntoVal, Symbol, Vec,
+};
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -36,15 +38,21 @@ impl EscrowFactory {
             .persistent()
             .extend_ttl(&ADMIN, FACTORY_TTL_THRESHOLD, FACTORY_TTL_BUMP);
 
-        env.storage().persistent().set(&IMPLEMENTATION, &implementation_address);
         env.storage()
             .persistent()
-            .extend_ttl(&IMPLEMENTATION, FACTORY_TTL_THRESHOLD, FACTORY_TTL_BUMP);
+            .set(&IMPLEMENTATION, &implementation_address);
+        env.storage().persistent().extend_ttl(
+            &IMPLEMENTATION,
+            FACTORY_TTL_THRESHOLD,
+            FACTORY_TTL_BUMP,
+        );
 
         env.storage().persistent().set(&ESCROW_COUNT, &0u64);
-        env.storage()
-            .persistent()
-            .extend_ttl(&ESCROW_COUNT, FACTORY_TTL_THRESHOLD, FACTORY_TTL_BUMP);
+        env.storage().persistent().extend_ttl(
+            &ESCROW_COUNT,
+            FACTORY_TTL_THRESHOLD,
+            FACTORY_TTL_BUMP,
+        );
     }
 
     /// Deploy a new escrow contract instance using minimal proxy pattern
@@ -63,7 +71,10 @@ impl EscrowFactory {
         }
 
         // Get implementation address
-        let implementation: Address = env.storage().persistent().get(&IMPLEMENTATION)
+        let implementation: Address = env
+            .storage()
+            .persistent()
+            .get(&IMPLEMENTATION)
             .expect("Implementation not set");
 
         // Deploy new escrow instance as minimal proxy
@@ -77,10 +88,11 @@ impl EscrowFactory {
             (
                 env.current_contract_address(), // Set factory as admin
                 Address::generate(&env),        // Treasury (placeholder)
-                0u32,                          // Fee bps (placeholder)
-                Vec::new(&env),                // Approved tokens (empty for now)
-                72 * 60 * 60,                  // Auto release delay (72 hours)
-            ).into_val(&env)
+                0u32,                           // Fee bps (placeholder)
+                Vec::new(&env),                 // Approved tokens (empty for now)
+                72 * 60 * 60,                   // Auto release delay (72 hours)
+            )
+                .into_val(&env),
         );
 
         // Create escrow in the deployed contract
@@ -95,22 +107,29 @@ impl EscrowFactory {
                 session_id.clone(),
                 token,
                 env.ledger().timestamp() + (24 * 60 * 60), // Session end time (24 hours from now)
-            ).into_val(&env)
+            )
+                .into_val(&env),
         );
 
         // Store mapping
-        env.storage().persistent().set(&session_key, &escrow_address);
         env.storage()
             .persistent()
-            .extend_ttl(&session_key, FACTORY_TTL_THRESHOLD, FACTORY_TTL_BUMP);
+            .set(&session_key, &escrow_address);
+        env.storage().persistent().extend_ttl(
+            &session_key,
+            FACTORY_TTL_THRESHOLD,
+            FACTORY_TTL_BUMP,
+        );
 
         // Add to list
         let mut count: u64 = env.storage().persistent().get(&ESCROW_COUNT).unwrap_or(0);
         count += 1;
         env.storage().persistent().set(&ESCROW_COUNT, &count);
-        env.storage()
-            .persistent()
-            .extend_ttl(&ESCROW_COUNT, FACTORY_TTL_THRESHOLD, FACTORY_TTL_BUMP);
+        env.storage().persistent().extend_ttl(
+            &ESCROW_COUNT,
+            FACTORY_TTL_THRESHOLD,
+            FACTORY_TTL_BUMP,
+        );
 
         let list_key = (ESCROW_LIST, count);
         let escrow_info = EscrowInfo {
@@ -128,7 +147,7 @@ impl EscrowFactory {
         // Emit event
         env.events().publish(
             (symbol_short!("escrow_deployed"), session_id.clone()),
-            (escrow_address.clone(), session_id)
+            (escrow_address.clone(), session_id),
         );
 
         escrow_address
@@ -157,9 +176,11 @@ impl EscrowFactory {
             if let Some(escrow_info) = env.storage().persistent().get::<_, EscrowInfo>(&list_key) {
                 result.push_back(escrow_info);
             }
-            env.storage()
-                .persistent()
-                .extend_ttl(&list_key, FACTORY_TTL_THRESHOLD, FACTORY_TTL_BUMP);
+            env.storage().persistent().extend_ttl(
+                &list_key,
+                FACTORY_TTL_THRESHOLD,
+                FACTORY_TTL_BUMP,
+            );
         }
 
         result
@@ -170,20 +191,26 @@ impl EscrowFactory {
         let admin = Self::admin(&env);
         admin.require_auth();
 
-        env.storage().persistent().set(&IMPLEMENTATION, &new_implementation);
         env.storage()
             .persistent()
-            .extend_ttl(&IMPLEMENTATION, FACTORY_TTL_THRESHOLD, FACTORY_TTL_BUMP);
+            .set(&IMPLEMENTATION, &new_implementation);
+        env.storage().persistent().extend_ttl(
+            &IMPLEMENTATION,
+            FACTORY_TTL_THRESHOLD,
+            FACTORY_TTL_BUMP,
+        );
 
         env.events().publish(
             (symbol_short!("implementation_upgraded")),
-            (new_implementation, env.ledger().timestamp())
+            (new_implementation, env.ledger().timestamp()),
         );
     }
 
     /// Get current implementation address
     pub fn get_implementation(env: Env) -> Address {
-        env.storage().persistent().get(&IMPLEMENTATION)
+        env.storage()
+            .persistent()
+            .get(&IMPLEMENTATION)
             .expect("Implementation not set")
     }
 
@@ -204,15 +231,22 @@ impl EscrowFactory {
         // In a real implementation, this would create a minimal proxy contract.
         let salt = env.prng().gen::<u64>();
         let deployer = env.deployer();
-        let deployed_address = deployer.with_current_contract(salt).deploy_address(implementation);
+        let deployed_address = deployer
+            .with_current_contract(salt)
+            .deploy_address(implementation);
         deployed_address
     }
 
     /// Get admin address (internal helper)
     fn admin(env: &Env) -> Address {
-        let admin: Address = env.storage().persistent().get(&ADMIN)
+        let admin: Address = env
+            .storage()
+            .persistent()
+            .get(&ADMIN)
             .expect("Not initialized");
-        env.storage().persistent().extend_ttl(&ADMIN, FACTORY_TTL_THRESHOLD, FACTORY_TTL_BUMP);
+        env.storage()
+            .persistent()
+            .extend_ttl(&ADMIN, FACTORY_TTL_THRESHOLD, FACTORY_TTL_BUMP);
         admin
     }
 }

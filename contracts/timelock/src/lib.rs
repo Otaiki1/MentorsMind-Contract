@@ -1,5 +1,7 @@
 #![no_std]
-use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, BytesN, Env, Symbol, Vec, Val};
+use soroban_sdk::{
+    contract, contractimpl, contracttype, symbol_short, Address, BytesN, Env, Symbol, Val, Vec,
+};
 
 const ADMIN: Symbol = symbol_short!("ADMIN");
 const OP_COUNT: Symbol = symbol_short!("OP_CNT");
@@ -38,7 +40,7 @@ impl TimelockController {
         delay: u64,
     ) -> BytesN<32> {
         caller.require_auth();
-        if delay < MIN_DELAY || delay > MAX_DELAY {
+        if !(MIN_DELAY..=MAX_DELAY).contains(&delay) {
             panic!("invalid delay");
         }
         let mut count: u64 = env.storage().persistent().get(&OP_COUNT).unwrap_or(0);
@@ -64,13 +66,24 @@ impl TimelockController {
         };
         let key = (symbol_short!("OP"), op_id.clone());
         env.storage().persistent().set(&key, &op);
-        env.events().publish((symbol_short!("timelock"), symbol_short!("scheduled"), op_id.clone()), (caller, target, function));
+        env.events().publish(
+            (
+                symbol_short!("timelock"),
+                symbol_short!("scheduled"),
+                op_id.clone(),
+            ),
+            (caller, target, function),
+        );
         op_id
     }
 
     pub fn execute(env: Env, operation_id: BytesN<32>) {
         let key = (symbol_short!("OP"), operation_id.clone());
-        let mut op: Operation = env.storage().persistent().get(&key).expect("operation not found");
+        let mut op: Operation = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .expect("operation not found");
         if op.done {
             panic!("operation already done");
         }
@@ -80,34 +93,64 @@ impl TimelockController {
         env.invoke_contract::<Val>(&op.target, &op.function, op.args.clone());
         op.done = true;
         env.storage().persistent().set(&key, &op);
-        env.events().publish((symbol_short!("timelock"), symbol_short!("executed"), operation_id), true);
+        env.events().publish(
+            (
+                symbol_short!("timelock"),
+                symbol_short!("executed"),
+                operation_id,
+            ),
+            true,
+        );
     }
 
     pub fn cancel(env: Env, operation_id: BytesN<32>) {
         let key = (symbol_short!("OP"), operation_id.clone());
-        let op: Operation = env.storage().persistent().get(&key).expect("operation not found");
+        let op: Operation = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .expect("operation not found");
         if op.done {
             panic!("operation already done");
         }
-        let admin: Address = env.storage().persistent().get(&ADMIN).expect("not initialized");
+        let admin: Address = env
+            .storage()
+            .persistent()
+            .get(&ADMIN)
+            .expect("not initialized");
         if admin != op.proposer {
             admin.require_auth();
         } else {
             op.proposer.require_auth();
         }
         env.storage().persistent().remove(&key);
-        env.events().publish((symbol_short!("timelock"), symbol_short!("cancelled"), operation_id), true);
+        env.events().publish(
+            (
+                symbol_short!("timelock"),
+                symbol_short!("cancelled"),
+                operation_id,
+            ),
+            true,
+        );
     }
 
     pub fn is_operation_ready(env: Env, operation_id: BytesN<32>) -> bool {
         let key = (symbol_short!("OP"), operation_id);
-        let op: Operation = env.storage().persistent().get(&key).expect("operation not found");
+        let op: Operation = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .expect("operation not found");
         !op.done && env.ledger().timestamp() >= op.ready_at
     }
 
     pub fn is_operation_done(env: Env, operation_id: BytesN<32>) -> bool {
         let key = (symbol_short!("OP"), operation_id);
-        let op: Operation = env.storage().persistent().get(&key).expect("operation not found");
+        let op: Operation = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .expect("operation not found");
         op.done
     }
 }

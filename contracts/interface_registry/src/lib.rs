@@ -1,6 +1,6 @@
 #![no_std]
 
-use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, Env, Vec, Symbol};
+use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, Env, Symbol, Vec};
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -153,7 +153,10 @@ mod tests {
         let (registry, _admin, escrow) = setup(&env);
         registry.register_interface(&escrow, &Symbol::new(&env, "escrow_v1"), &1);
 
-        assert_eq!(registry.get_contract(&Symbol::new(&env, "escrow_v1")), escrow);
+        assert_eq!(
+            registry.get_contract(&Symbol::new(&env, "escrow_v1")),
+            escrow
+        );
         assert_eq!(registry.get_version(&Symbol::new(&env, "escrow_v1")), 1);
     }
 
@@ -183,15 +186,17 @@ mod tests {
         let (registry, _admin, escrow) = setup(&env);
 
         registry.register_interface(&escrow, &Symbol::new(&env, "escrow_v1"), &1);
-        registry.register_interface(&Address::generate(&env), &Symbol::new(&env, "oracle_v1"), &1);
+        registry.register_interface(
+            &Address::generate(&env),
+            &Symbol::new(&env, "oracle_v1"),
+            &1,
+        );
 
         let list = registry.list_interfaces();
         assert_eq!(list.len(), 2);
 
-        let interface_names: Vec<Symbol> = list
-            .iter()
-            .map(|item| item.interface_id.clone())
-            .collect();
+        let interface_names: Vec<Symbol> =
+            list.iter().map(|item| item.interface_id.clone()).collect();
 
         assert!(interface_names.contains(&Symbol::new(&env, "escrow_v1")));
         assert!(interface_names.contains(&Symbol::new(&env, "oracle_v1")));

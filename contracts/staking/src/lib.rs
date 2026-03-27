@@ -64,6 +64,8 @@ pub enum DataKey {
     Admin,
     MNTToken,
     Stake(Address),
+    Stakers,
+    TotalStaked,
 }
 
 // ---------------------------------------------------------------------------
@@ -103,7 +105,9 @@ impl StakingContract {
             return Err(Error::AlreadyInitialized);
         }
         env.storage().persistent().set(&DataKey::Admin, &admin);
-        env.storage().persistent().set(&DataKey::MNTToken, &mnt_token);
+        env.storage()
+            .persistent()
+            .set(&DataKey::MNTToken, &mnt_token);
         Ok(())
     }
 
@@ -128,7 +132,11 @@ impl StakingContract {
             return Err(Error::InvalidAmount);
         }
 
-        if env.storage().persistent().has(&DataKey::Stake(mentor.clone())) {
+        if env
+            .storage()
+            .persistent()
+            .has(&DataKey::Stake(mentor.clone()))
+        {
             return Err(Error::AlreadyStaked);
         }
 
@@ -160,6 +168,20 @@ impl StakingContract {
         env.storage()
             .persistent()
             .set(&DataKey::Stake(mentor.clone()), &record);
+
+        // Update stakers list and total staked
+        let mut stakers: soroban_sdk::Vec<Address> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Stakers)
+            .unwrap_or_else(|| soroban_sdk::Vec::new(&env));
+        if !stakers.contains(&mentor) {
+            stakers.push_back(mentor.clone());
+            env.storage().persistent().set(&DataKey::Stakers, &stakers);
+        }
+
+        let total_staked: i128 = env.storage().persistent().get(&DataKey::TotalStaked).unwrap_or(0);
+        env.storage().persistent().set(&DataKey::TotalStaked, &(total_staked + amount));
 
         env.events().publish(
             (
@@ -215,6 +237,20 @@ impl StakingContract {
             .persistent()
             .remove(&DataKey::Stake(mentor.clone()));
 
+        // Update stakers list and total staked
+        let mut stakers: soroban_sdk::Vec<Address> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Stakers)
+            .unwrap_or_else(|| soroban_sdk::Vec::new(&env));
+        if let Some(index) = stakers.first_index_of(&mentor) {
+            stakers.remove(index);
+            env.storage().persistent().set(&DataKey::Stakers, &stakers);
+        }
+
+        let total_staked: i128 = env.storage().persistent().get(&DataKey::TotalStaked).unwrap_or(0);
+        env.storage().persistent().set(&DataKey::TotalStaked, &(total_staked - record.amount));
+
         env.events().publish(
             (
                 Symbol::new(&env, "Staking"),
@@ -246,6 +282,19 @@ impl StakingContract {
             .get::<DataKey, StakeRecord>(&DataKey::Stake(mentor))
             .map(|r| r.tier)
             .unwrap_or(0)
+    }
+
+    /// Return all current stakers.
+    pub fn get_stakers(env: Env) -> soroban_sdk::Vec<Address> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::Stakers)
+            .unwrap_or_else(|| soroban_sdk::Vec::new(&env))
+    }
+
+    /// Return the total amount staked in the contract.
+    pub fn get_total_staked(env: Env) -> i128 {
+        env.storage().persistent().get(&DataKey::TotalStaked).unwrap_or(0)
     }
 }
 
@@ -519,9 +568,7 @@ mod test {
     #[test]
     fn test_initialize_rejects_double_init() {
         let f = Fixture::setup();
-        let result = f
-            .client()
-            .try_initialize(&f.admin, &f.mnt_id);
+        let result = f.client().try_initialize(&f.admin, &f.mnt_id);
         assert_eq!(result, Err(Ok(Error::AlreadyInitialized)));
     }
 }

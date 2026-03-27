@@ -24,12 +24,18 @@ impl OracleContract {
             panic!("already initialized");
         }
         env.storage().persistent().set(&ADMIN, &admin);
-        env.storage().persistent().set(&FEEDERS, &Vec::<Address>::new(&env));
+        env.storage()
+            .persistent()
+            .set(&FEEDERS, &Vec::<Address>::new(&env));
     }
 
     pub fn add_feeder(env: Env, feeder: Address) {
         Self::admin(&env).require_auth();
-        let mut feeders: Vec<Address> = env.storage().persistent().get(&FEEDERS).unwrap_or(Vec::new(&env));
+        let mut feeders: Vec<Address> = env
+            .storage()
+            .persistent()
+            .get(&FEEDERS)
+            .unwrap_or(Vec::new(&env));
         if !feeders.contains(feeder.clone()) {
             feeders.push_back(feeder);
         }
@@ -38,7 +44,11 @@ impl OracleContract {
 
     pub fn remove_feeder(env: Env, feeder: Address) {
         Self::admin(&env).require_auth();
-        let feeders: Vec<Address> = env.storage().persistent().get(&FEEDERS).unwrap_or(Vec::new(&env));
+        let feeders: Vec<Address> = env
+            .storage()
+            .persistent()
+            .get(&FEEDERS)
+            .unwrap_or(Vec::new(&env));
         let mut next = Vec::new(&env);
         for f in feeders.iter() {
             if f != feeder {
@@ -54,22 +64,37 @@ impl OracleContract {
             panic!("unauthorized feeder");
         }
         let key = (symbol_short!("PRICES"), asset.clone());
-        let mut points: Vec<PricePoint> = env.storage().persistent().get(&key).unwrap_or(Vec::new(&env));
+        let mut points: Vec<PricePoint> = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or(Vec::new(&env));
         points.push_back(PricePoint { price, timestamp });
         while points.len() > MAX_POINTS {
             points.remove(0);
         }
         env.storage().persistent().set(&key, &points);
-        env.events().publish((symbol_short!("oracle"), symbol_short!("price_upd"), asset), (price, timestamp));
+        env.events().publish(
+            (symbol_short!("oracle"), symbol_short!("price_upd"), asset),
+            (price, timestamp),
+        );
     }
 
     pub fn get_price(env: Env, asset: Symbol) -> (i128, u64) {
-        let feeders: Vec<Address> = env.storage().persistent().get(&FEEDERS).unwrap_or(Vec::new(&env));
+        let feeders: Vec<Address> = env
+            .storage()
+            .persistent()
+            .get(&FEEDERS)
+            .unwrap_or(Vec::new(&env));
         if feeders.len() < MIN_FEEDERS {
             panic!("not enough feeders");
         }
         let key = (symbol_short!("PRICES"), asset);
-        let points: Vec<PricePoint> = env.storage().persistent().get(&key).unwrap_or(Vec::new(&env));
+        let points: Vec<PricePoint> = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or(Vec::new(&env));
         if points.is_empty() {
             panic!("no prices");
         }
@@ -109,11 +134,18 @@ impl OracleContract {
     }
 
     fn is_feeder(env: &Env, feeder: &Address) -> bool {
-        let feeders: Vec<Address> = env.storage().persistent().get(&FEEDERS).unwrap_or(Vec::new(env));
+        let feeders: Vec<Address> = env
+            .storage()
+            .persistent()
+            .get(&FEEDERS)
+            .unwrap_or(Vec::new(env));
         feeders.contains(feeder.clone())
     }
 
     fn admin(env: &Env) -> Address {
-        env.storage().persistent().get(&ADMIN).expect("not initialized")
+        env.storage()
+            .persistent()
+            .get(&ADMIN)
+            .expect("not initialized")
     }
 }

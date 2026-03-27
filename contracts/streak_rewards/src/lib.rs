@@ -1,7 +1,5 @@
 #![no_std]
-use soroban_sdk::{
-    contract, contractimpl, contracttype, symbol_short, token, Address, Env, Symbol, Vec,
-};
+use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, token, Address, Env, Vec};
 
 // ---------------------------------------------------------------------------
 // Data Types
@@ -23,7 +21,7 @@ pub enum DataKey {
     Admin,
     MntToken,
     UserStreak(Address),
-    Leaderboard, 
+    Leaderboard,
 }
 
 // ---------------------------------------------------------------------------
@@ -41,9 +39,11 @@ impl StreakRewardsContract {
         }
         env.storage().instance().set(&DataKey::Admin, &admin);
         env.storage().instance().set(&DataKey::MntToken, &mnt_token);
-        
+
         let leaderboard: Vec<(Address, u32)> = Vec::new(&env);
-        env.storage().persistent().set(&DataKey::Leaderboard, &leaderboard);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Leaderboard, &leaderboard);
     }
 
     pub fn record_session(env: Env, learner: Address, session_week: u32) {
@@ -59,7 +59,11 @@ impl StreakRewardsContract {
         } else if session_week > record.last_active_week + 1 {
             if record.last_active_week != 0 {
                 env.events().publish(
-                    (symbol_short!("streak"), symbol_short!("broken"), learner.clone()),
+                    (
+                        symbol_short!("streak"),
+                        symbol_short!("broken"),
+                        learner.clone(),
+                    ),
                     (record.current_streak,),
                 );
             }
@@ -74,10 +78,16 @@ impl StreakRewardsContract {
         }
         record.last_active_week = session_week;
 
-        env.storage().persistent().set(&DataKey::UserStreak(learner.clone()), &record);
-        
+        env.storage()
+            .persistent()
+            .set(&DataKey::UserStreak(learner.clone()), &record);
+
         env.events().publish(
-            (symbol_short!("streak"), symbol_short!("updated"), learner.clone()),
+            (
+                symbol_short!("streak"),
+                symbol_short!("updated"),
+                learner.clone(),
+            ),
             (record.current_streak,),
         );
 
@@ -109,7 +119,9 @@ impl StreakRewardsContract {
         token_client.transfer(&env.current_contract_address(), &learner, &amount_i128);
 
         record.claimed_this_week = true;
-        env.storage().persistent().set(&DataKey::UserStreak(learner.clone()), &record);
+        env.storage()
+            .persistent()
+            .set(&DataKey::UserStreak(learner.clone()), &record);
 
         env.events().publish(
             (symbol_short!("reward"), symbol_short!("claimed"), learner),
@@ -131,7 +143,10 @@ impl StreakRewardsContract {
     }
 
     pub fn get_leaderboard(env: Env) -> Vec<(Address, u32)> {
-        env.storage().persistent().get(&DataKey::Leaderboard).unwrap_or(Vec::new(&env))
+        env.storage()
+            .persistent()
+            .get(&DataKey::Leaderboard)
+            .unwrap_or(Vec::new(&env))
     }
 
     fn update_leaderboard(env: Env, learner: Address, streak: u32) {
@@ -167,13 +182,15 @@ impl StreakRewardsContract {
                 let (_, s2) = leaderboard.get(j + 1).unwrap();
                 if s1 < s2 {
                     let temp = leaderboard.get(j).unwrap();
-                    leaderboard.set(j, leaderboard.get(j+1).unwrap());
-                    leaderboard.set(j+1, temp);
+                    leaderboard.set(j, leaderboard.get(j + 1).unwrap());
+                    leaderboard.set(j + 1, temp);
                 }
             }
         }
 
-        env.storage().persistent().set(&DataKey::Leaderboard, &leaderboard);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Leaderboard, &leaderboard);
     }
 }
 
@@ -184,8 +201,8 @@ impl StreakRewardsContract {
 #[cfg(test)]
 mod test {
     use super::*;
-    use soroban_sdk::testutils::{Address as _};
-    use soroban_sdk::{Env};
+    use soroban_sdk::testutils::Address as _;
+    use soroban_sdk::Env;
 
     #[contract]
     pub struct MockToken;
@@ -194,16 +211,23 @@ mod test {
         pub fn transfer(_e: Env, _from: Address, _to: Address, _amount: i128) {}
     }
 
-    fn setup_test(env: &Env) -> (Address, Address, Address, StreakRewardsContractClient<'static>) {
+    fn setup_test(
+        env: &Env,
+    ) -> (
+        Address,
+        Address,
+        Address,
+        StreakRewardsContractClient<'static>,
+    ) {
         let admin = Address::generate(env);
         let learner = Address::generate(env);
-        
+
         let token_addr = env.register_contract(None, MockToken);
         let contract_id = env.register_contract(None, StreakRewardsContract);
         let client = StreakRewardsContractClient::new(env, &contract_id);
-        
+
         client.initialize(&admin, &token_addr);
-        
+
         (admin, learner, token_addr, client)
     }
 
@@ -211,10 +235,10 @@ mod test {
     fn test_streak_building() {
         let env = Env::default();
         let (_, learner, _, client) = setup_test(&env);
-        
+
         client.record_session(&learner, &1);
         assert_eq!(client.get_streak(&learner).current_streak, 1);
-        
+
         client.record_session(&learner, &2);
         assert_eq!(client.get_streak(&learner).current_streak, 2);
 
@@ -226,12 +250,12 @@ mod test {
     fn test_leaderboard() {
         let env = Env::default();
         let (_, _, _, client) = setup_test(&env);
-        
+
         for _i in 0..5 {
             let u = Address::generate(&env);
             client.record_session(&u, &1);
         }
-        
+
         let lb = client.get_leaderboard();
         assert_eq!(lb.len(), 5);
     }
@@ -241,9 +265,9 @@ mod test {
     fn test_claim_twice_fails() {
         let env = Env::default();
         let (_, learner, _, client) = setup_test(&env);
-        
+
         client.record_session(&learner, &1);
-        
+
         env.mock_all_auths();
         client.claim_streak_reward(&learner);
         client.claim_streak_reward(&learner);
