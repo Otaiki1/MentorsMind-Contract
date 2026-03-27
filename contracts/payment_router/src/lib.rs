@@ -1,7 +1,8 @@
 #![no_std]
 
 use soroban_sdk::{
-    contract, contractimpl, contracttype, symbol_short, token, Address, BytesN, Env, IntoVal, Symbol, Vec,
+    contract, contractimpl, contracttype, symbol_short, token, Address, BytesN, Env, IntoVal,
+    Symbol, Vec,
 };
 
 // Source chain constants
@@ -58,12 +59,7 @@ pub struct PaymentRouter;
 #[contractimpl]
 impl PaymentRouter {
     /// Initialize the payment router contract
-    pub fn init(
-        env: Env,
-        admin: Address,
-        escrow_contract: Address,
-        bridge_receiver: Address,
-    ) {
+    pub fn init(env: Env, admin: Address, escrow_contract: Address, bridge_receiver: Address) {
         // Check if already initialized
         if env.storage().instance().has(&DataKey::Config) {
             panic!("Already initialized");
@@ -83,17 +79,17 @@ impl PaymentRouter {
         };
 
         env.storage().instance().set(&DataKey::Config, &config);
-        env.storage().instance().set(&DataKey::EscrowIdCounter, &0u64);
+        env.storage()
+            .instance()
+            .set(&DataKey::EscrowIdCounter, &0u64);
 
         // Emit initialization event
-        env.events().publish(
-            (symbol_short!("router"), symbol_short!("init")),
-            admin,
-        );
+        env.events()
+            .publish((symbol_short!("router"), symbol_short!("init")), admin);
     }
 
     /// Route a payment from any supported chain to create an escrow
-    /// 
+    ///
     /// # Arguments
     /// * `source_chain` - The chain ID where payment originated (0 for Stellar native)
     /// * `source_tx_hash` - The transaction hash on the source chain
@@ -101,7 +97,7 @@ impl PaymentRouter {
     /// * `mentor` - The mentor's address  
     /// * `amount` - The payment amount
     /// * `token` - The token contract address
-    /// 
+    ///
     /// # Returns
     /// * The escrow ID created
     pub fn route_payment(
@@ -146,7 +142,7 @@ impl PaymentRouter {
         // For Stellar direct payments, transfer tokens from learner to escrow
         if source_chain == CHAIN_STELLAR {
             let token_client = token::Client::new(&env, &token);
-            
+
             // Verify learner has sufficient balance
             if token_client.balance(&learner) < amount {
                 panic!("Insufficient token balance");
@@ -395,7 +391,7 @@ impl PaymentRouter {
             .instance()
             .get(&DataKey::EscrowIdCounter)
             .unwrap_or(0);
-        
+
         // Use a simple scheme: alternate between known unique symbols based on counter
         // Since the escrow contract tracks session_id uniqueness, we can cycle through
         // a set of base symbols and rely on the contract's internal counter for true uniqueness
@@ -427,10 +423,8 @@ impl PaymentRouter {
             token: token.clone(),
         };
 
-        env.events().publish(
-            (symbol_short!("router"), symbol_short!("routed")),
-            event,
-        );
+        env.events()
+            .publish((symbol_short!("router"), symbol_short!("routed")), event);
     }
 }
 
@@ -555,16 +549,9 @@ mod test {
         client.init(&admin, &escrow_contract, &bridge_receiver);
 
         let tx_hash = BytesN::from_array(&env, &[1u8; 32]);
-        
+
         // Try to route from unsupported chain (99)
-        client.route_payment(
-            &99,
-            &tx_hash,
-            &learner,
-            &mentor,
-            &1000,
-            &token,
-        );
+        client.route_payment(&99, &tx_hash, &learner, &mentor, &1000, &token);
     }
 
     #[test]
@@ -578,15 +565,8 @@ mod test {
         client.init(&admin, &escrow_contract, &bridge_receiver);
 
         let tx_hash = BytesN::from_array(&env, &[1u8; 32]);
-        
-        client.route_payment(
-            &CHAIN_STELLAR,
-            &tx_hash,
-            &learner,
-            &mentor,
-            &0,
-            &token,
-        );
+
+        client.route_payment(&CHAIN_STELLAR, &tx_hash, &learner, &mentor, &0, &token);
     }
 
     #[test]

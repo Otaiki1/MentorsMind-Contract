@@ -32,5 +32,6 @@ build/
 
 .agents/
 .claude/
-issue.mdnode_modules/
+issue.md
+node_modules/
 package-lock.json.bk
