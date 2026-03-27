@@ -11,6 +11,10 @@ members = [
     "contracts/payment_router",
     "contracts/streak_rewards",
     "contracts/shared",
+    "contracts/regulatory_reporting",
+    "contracts/certificates",
+    "contracts/badges",
+    "contracts/sanctions",
     "tests",
 ]
 

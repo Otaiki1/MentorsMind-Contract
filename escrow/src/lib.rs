@@ -221,6 +221,7 @@ const SESSION_KEY: Symbol = symbol_short!("SESSION");
 const MENTOR_ESCROWS: Symbol = symbol_short!("MNT_ESC");
 const LEARNER_ESCROWS: Symbol = symbol_short!("LRN_ESC");
 const KYC_REGISTRY: Symbol = symbol_short!("KYC_REG");
+const SANCTIONS: Symbol = symbol_short!("SANCTION");
 const MAX_FEE_BPS: u32 = 1_000;
 const DEFAULT_AUTO_RELEASE_DELAY: u64 = 72 * 60 * 60;
 
@@ -239,6 +240,11 @@ pub trait KycRegistryTrait {
     fn is_kyc_valid(env: Env, user: Address, min_level: KycLevel) -> bool;
 }
 
+#[soroban_sdk::contractclient(name = "SanctionsClient")]
+pub trait SanctionsTrait {
+    fn is_sanctioned(env: Env, address: Address) -> bool;
+}
+
 #[contractimpl]
 impl EscrowContract {
     pub fn initialize(
@@ -248,6 +254,7 @@ impl EscrowContract {
         fee_bps: u32,
         approved_tokens: Vec<Address>,
         auto_release_delay_secs: u64,
+        sanctions_contract: Option<Address>,
     ) {
         if env.storage().persistent().has(&ADMIN) {
             panic!("Already initialized");
@@ -298,6 +305,10 @@ impl EscrowContract {
 
         for token_addr in approved_tokens.iter() {
             Self::_set_token_approved(&env, &token_addr, true);
+        }
+
+        if let Some(sc) = sanctions_contract {
+            env.storage().persistent().set(&SANCTIONS, &sc);
         }
     }
 
@@ -352,6 +363,16 @@ impl EscrowContract {
         total_sessions: u32,
     ) -> u64 {
         learner.require_auth();
+        // Sanctions screening
+        if let Some(sc_addr) = env.storage().persistent().get::<Symbol, Address>(&SANCTIONS) {
+            let sc = SanctionsClient::new(&env, &sc_addr);
+            if sc.is_sanctioned(&mentor) {
+                panic!("mentor is sanctioned");
+            }
+            if sc.is_sanctioned(&learner) {
+                panic!("learner is sanctioned");
+            }
+        }
         if amount <= 0 {
             panic!("Amount must be greater than zero");
         }
