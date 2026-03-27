@@ -101,13 +101,11 @@ impl StakingContract {
     /// Initialize the staking contract.
     /// Must be called once before any other function.
     pub fn initialize(env: Env, admin: Address, mnt_token: Address) -> Result<(), Error> {
-        if env.storage().persistent().has(&DataKey::Admin) {
+        if env.storage().instance().has(&DataKey::Admin) {
             return Err(Error::AlreadyInitialized);
         }
-        env.storage().persistent().set(&DataKey::Admin, &admin);
-        env.storage()
-            .persistent()
-            .set(&DataKey::MNTToken, &mnt_token);
+        env.storage().instance().set(&DataKey::Admin, &admin);
+        env.storage().instance().set(&DataKey::MNTToken, &mnt_token);
         Ok(())
     }
 
@@ -124,7 +122,7 @@ impl StakingContract {
         amount: i128,
         lock_period_days: u32,
     ) -> Result<(), Error> {
-        if !env.storage().persistent().has(&DataKey::Admin) {
+        if !env.storage().instance().has(&DataKey::Admin) {
             return Err(Error::NotInitialized);
         }
 
@@ -144,7 +142,7 @@ impl StakingContract {
 
         let mnt_token: Address = env
             .storage()
-            .persistent()
+            .instance()
             .get(&DataKey::MNTToken)
             .ok_or(Error::NotInitialized)?;
 
@@ -207,7 +205,7 @@ impl StakingContract {
     ///
     /// Auth: `mentor` must authorize this call.
     pub fn unstake(env: Env, mentor: Address) -> Result<(), Error> {
-        if !env.storage().persistent().has(&DataKey::Admin) {
+        if !env.storage().instance().has(&DataKey::Admin) {
             return Err(Error::NotInitialized);
         }
 
@@ -226,7 +224,7 @@ impl StakingContract {
 
         let mnt_token: Address = env
             .storage()
-            .persistent()
+            .instance()
             .get(&DataKey::MNTToken)
             .ok_or(Error::NotInitialized)?;
 

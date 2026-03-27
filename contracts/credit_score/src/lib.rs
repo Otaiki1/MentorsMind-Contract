@@ -68,12 +68,12 @@ pub struct ScoreBreakdown {
 
 #[contracttype]
 pub enum DataKey {
-    Admin,
-    EscrowContract,
-    StakingContract,
-    UserScore(Address),
-    UserBreakdown(Address),
-    LastUpdate(Address),
+    Admin,              // Persistent: critical config
+    EscrowContract,     // Persistent: external dependency
+    StakingContract,    // Persistent: external dependency
+    UserScore(Address), // Persistent: long-term user data
+    UserBreakdown(Address), // Persistent: long-term user data
+    LastUpdate(Address), // Temporary: rate limiting, auto-expires
 }
 
 const MIN_SCORE: u32 = 300;
@@ -125,7 +125,7 @@ impl CreditScoreContract {
     pub fn refresh_score(env: Env, user: Address) {
         let last_update: u64 = env
             .storage()
-            .persistent()
+            .temporary()
             .get(&DataKey::LastUpdate(user.clone()))
             .unwrap_or(0);
         if env.ledger().timestamp() < last_update + DAY_SECONDS {
@@ -140,9 +140,15 @@ impl CreditScoreContract {
         env.storage()
             .persistent()
             .set(&DataKey::UserBreakdown(user.clone()), &breakdown);
-        env.storage().persistent().set(
+        env.storage().temporary().set(
             &DataKey::LastUpdate(user.clone()),
             &env.ledger().timestamp(),
+        );
+        // Extend TTL for temporary storage (1 day)
+        env.storage().temporary().extend_ttl(
+            &DataKey::LastUpdate(user),
+            DAY_SECONDS,
+            DAY_SECONDS,
         );
 
         env.events().publish(

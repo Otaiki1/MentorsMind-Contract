@@ -17,15 +17,11 @@ members = [
     "contracts/vesting",
     "contracts/payment_router",
     "contracts/streak_rewards",
-<<<<<<< issue/148-contract-interoperability
     "contracts/shared",
-    "contracts/mnt-token",
-    "contracts/session_nft",
-    "contracts/staking",
-    "contracts/reputation",
-=======
+    "contracts/upgrade_registry",
+    "contracts/rate_limiter",
+    "contracts/performance_bond",
     "contracts/health_dashboard",
->>>>>>> main
     "tests",
 ]
 
