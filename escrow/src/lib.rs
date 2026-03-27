@@ -146,6 +146,8 @@ const TREASURY: Symbol = symbol_short!("TREASURY");
 const FEE_BPS: Symbol = symbol_short!("FEE_BPS");
 /// Default auto-release delay in seconds (configurable at init).
 const AUTO_REL_DLY: Symbol = symbol_short!("AR_DELAY");
+/// Contract version for upgrade tracking
+const CONTRACT_VERSION: Symbol = symbol_short!("CONTRACT_VER");
 const SESSION_KEY: Symbol = symbol_short!("SESSION");
 const ORACLE_ID: Symbol = symbol_short!("ORACLE");
 const ORACLE_MAX_AGE: Symbol = symbol_short!("OR_AGE");
@@ -165,6 +167,23 @@ const APPROVED_TOKEN_KEY: Symbol = symbol_short!("APRV_TOK");
 
 const ESCROW_TTL_THRESHOLD: u32 = 500_000;
 const ESCROW_TTL_BUMP: u32 = 1_000_000;
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum DataKey {
+    Admin,
+    Treasury,
+    FeeBps,
+    EscrowCount,
+    AutoRelDelay,
+    ContractVersion,
+    Escrow(u64),
+    ApprovedToken(Address),
+}
 
 // ---------------------------------------------------------------------------
 // Contract
@@ -246,6 +265,12 @@ impl EscrowContract {
         for token_addr in approved_tokens.iter() {
             Self::_set_token_approved(&env, &token_addr, true);
         }
+
+        // Initialize contract version (starts at 1)
+        env.storage().persistent().set(&DataKey::ContractVersion, &1u32);
+        env.storage()
+            .persistent()
+            .extend_ttl(&DataKey::ContractVersion, ESCROW_TTL_THRESHOLD, ESCROW_TTL_BUMP);
     }
 
     /// Update the platform fee — admin only, capped at 1 000 bps (10%).
@@ -282,7 +307,7 @@ impl EscrowContract {
 
         /// Get dynamic fee based on MNT/USDC price from liquidity pool
     /// Returns fee in basis points (bps)
-    /// 
+    ///
     /// Fee schedule:
     /// - Price < $0.10 → 500 bps (5%)
     /// - Price $0.10–$0.50 → 400 bps (4%)
@@ -294,29 +319,29 @@ impl EscrowContract {
             .instance()
             .get(&DYNAMIC_FEE_ENABLED)
             .unwrap_or(true);
-        
+
         if !dynamic_enabled {
             return env.storage().persistent().get(&FEE_BPS).unwrap_or(DEFAULT_FEE_BPS);
         }
-        
+
         let current_ledger = env.ledger().sequence();
         let cached_ledger: u32 = env
             .storage()
             .instance()
             .get(&PRICE_CACHE_TIME)
             .unwrap_or(0);
-        
+
         if cached_ledger == current_ledger {
             if let Some(cached_price) = env.storage().instance().get::<_, i128>(&PRICE_CACHE) {
                 return Self::_calculate_fee_from_price(cached_price);
             }
         }
-        
+
         let price = Self::_fetch_mnt_usdc_price(&env);
-        
+
         env.storage().instance().set(&PRICE_CACHE, &price);
         env.storage().instance().set(&PRICE_CACHE_TIME, &current_ledger);
-        
+
         Self::_calculate_fee_from_price(price)
     }
 
@@ -324,11 +349,11 @@ impl EscrowContract {
         if price <= 0 {
             return DEFAULT_FEE_BPS;
         }
-        
+
         let threshold_010 = 1_000_000;
         let threshold_050 = 5_000_000;
         let threshold_100 = 10_000_000;
-        
+
         if price < threshold_010 {
             500
         } else if price < threshold_050 {
@@ -342,13 +367,13 @@ impl EscrowContract {
 
     fn _fetch_mnt_usdc_price(env: &Env) -> i128 {
         let pool_address: Option<Address> = env.storage().instance().get(&LIQUIDITY_POOL);
-        
+
         if let Some(_pool) = pool_address {
             // TODO: Implement actual pool contract integration
             // Placeholder: return $0.75 (7,500,000) for testing
             return 7_500_000;
         }
-        
+
         0
     }
 
@@ -360,7 +385,7 @@ impl EscrowContract {
             .get(&ADMIN)
             .expect("Not initialized");
         admin.require_auth();
-        
+
         env.storage().instance().set(&LIQUIDITY_POOL, &pool_address);
     }
 
@@ -372,7 +397,7 @@ impl EscrowContract {
             .get(&ADMIN)
             .expect("Not initialized");
         admin.require_auth();
-        
+
         env.storage().instance().set(&DYNAMIC_FEE_ENABLED, &enabled);
     }
 
@@ -498,7 +523,7 @@ impl EscrowContract {
     ///
     /// Panics if:
     /// - Escrow does not exist
-    /// - Escrow is not in Active status  
+    /// - Escrow is not in Active status
     /// - Caller is not the learner or admin
     /// - Caller fails authorization check
     pub fn release_funds(env: Env, caller: Address, escrow_id: u64) {
@@ -572,14 +597,14 @@ impl EscrowContract {
         } else {
             // We use the original amount (quoted_token_amount) to calculate partials
             // to ensure they are equal. But since 'amount' is what's currently held,
-            // and it might decrease if we were doing it differently, 
+            // and it might decrease if we were doing it differently,
             // the logic from Acceptance Criteria says "releases amount / total_sessions".
             // I'll assume 'amount' here refers to the total locked amount at creation.
             // Since we update escrow.amount in this implementation (based on line 258),
-            // we should probably use a fixed reference. 
+            // we should probably use a fixed reference.
             // Actually, the existing release_partial (line 218) was taking an 'amount_to_release' arg.
             // The NEW requirement says "release amount / total_sessions".
-            
+
             // Let's use quoted_token_amount as the total original amount.
             escrow.quoted_token_amount.checked_div(escrow.total_sessions as i128).expect("Division error")
         };
@@ -973,6 +998,17 @@ impl EscrowContract {
             .persistent()
             .get(&DataKey::AutoRelDelay)
             .unwrap_or(DEFAULT_AUTO_RELEASE_DELAY)
+    }
+
+    /// Get the current contract version
+    pub fn get_version(env: Env) -> u32 {
+        env.storage()
+            .persistent()
+            .extend_ttl(&DataKey::ContractVersion, ESCROW_TTL_THRESHOLD, ESCROW_TTL_BUMP);
+        env.storage()
+            .persistent()
+            .get(&DataKey::ContractVersion)
+            .unwrap_or(0)
     }
 
     pub fn is_token_approved(env: Env, token_address: Address) -> bool {
@@ -2147,37 +2183,37 @@ mod test {
         if milestones.is_empty() {
             panic!("At least one milestone required");
         }
-        
+
         if !Self::_is_token_approved(&env, &token_address) {
             panic!("Token not approved");
         }
-        
+
         let total_amount = milestones.iter().fold(0i128, |acc, m| acc.checked_add(m.amount).expect("Amount overflow"));
-        
+
         if total_amount <= 0 {
             panic!("Total amount must be greater than zero");
         }
-        
+
         learner.require_auth();
-        
+
         let token_client = token::Client::new(&env, &token_address);
         if token_client.balance(&learner) < total_amount {
             panic!("Insufficient token balance");
         }
-        
+
         let mut count: u64 = env.storage().persistent().get(&MILESTONE_ESCROW_COUNT).unwrap_or(0);
         count += 1;
         env.storage().persistent().set(&MILESTONE_ESCROW_COUNT, &count);
         env.storage()
             .persistent()
             .extend_ttl(&MILESTONE_ESCROW_COUNT, ESCROW_TTL_THRESHOLD, ESCROW_TTL_BUMP);
-        
+
         token_client.transfer(&learner, &env.current_contract_address(), &total_amount);
-        
+
         let milestone_statuses: Vec<MilestoneStatus> = (0..milestones.len())
             .map(|_| MilestoneStatus::Pending)
             .collect();
-        
+
         let milestone_escrow = MilestoneEscrow {
             id: count,
             mentor: mentor.clone(),
@@ -2191,54 +2227,54 @@ mod test {
             platform_fee: 0,
             net_amount: 0,
         };
-        
+
         let key = (symbol_short!("MESCROW"), count);
         env.storage().persistent().set(&key, &milestone_escrow);
         env.storage()
             .persistent()
             .extend_ttl(&key, ESCROW_TTL_THRESHOLD, ESCROW_TTL_BUMP);
-        
+
         env.events().publish(
             (symbol_short!("milestone_created"), count),
             (mentor, learner, total_amount, milestones.len())
         );
-        
+
         count
     }
-    
+
     pub fn complete_milestone(env: Env, escrow_id: u64, milestone_index: u32) {
         let key = (symbol_short!("MESCROW"), escrow_id);
         env.storage()
             .persistent()
             .extend_ttl(&key, ESCROW_TTL_THRESHOLD, ESCROW_TTL_BUMP);
-        
+
         let mut milestone_escrow: MilestoneEscrow = env
             .storage()
             .persistent()
             .get(&key)
             .expect("Milestone escrow not found");
-        
+
         if milestone_escrow.status != EscrowStatus::Active {
             panic!("Milestone escrow not active");
         }
-        
+
         if milestone_index as usize >= milestone_escrow.milestones.len() {
             panic!("Invalid milestone index");
         }
-        
+
         let current_status = milestone_escrow.milestone_statuses.get(milestone_index as usize).unwrap();
         if *current_status != MilestoneStatus::Pending {
             panic!("Milestone not pending");
         }
-        
+
         milestone_escrow.learner.require_auth();
-        
+
         let milestone = &milestone_escrow.milestones[milestone_index as usize];
         let fee_bps: u32 = env.storage().persistent().get(&FEE_BPS).unwrap_or(0u32);
         env.storage()
             .persistent()
             .extend_ttl(&FEE_BPS, ESCROW_TTL_THRESHOLD, ESCROW_TTL_BUMP);
-        
+
         let platform_fee: i128 = milestone
             .amount
             .checked_mul(fee_bps as i128)
@@ -2246,76 +2282,76 @@ mod test {
             .checked_div(10_000)
             .expect("Division error");
         let net_amount: i128 = milestone.amount.checked_sub(platform_fee).expect("Underflow");
-        
+
         let treasury: Address = env.storage().persistent().get(&TREASURY).expect("Treasury not found");
         env.storage()
             .persistent()
             .extend_ttl(&TREASURY, ESCROW_TTL_THRESHOLD, ESCROW_TTL_BUMP);
-        
+
         let token_client = token::Client::new(&env, &milestone_escrow.token_address);
-        
+
         if platform_fee > 0 {
             token_client.transfer(&env.current_contract_address(), &treasury, &platform_fee);
         }
-        
+
         token_client.transfer(&env.current_contract_address(), &milestone_escrow.mentor, &net_amount);
-        
+
         milestone_escrow.milestone_statuses[milestone_index as usize] = MilestoneStatus::Completed;
         milestone_escrow.platform_fee = milestone_escrow.platform_fee.checked_add(platform_fee).expect("Overflow");
         milestone_escrow.net_amount = milestone_escrow.net_amount.checked_add(net_amount).expect("Overflow");
-        
+
         let all_completed = milestone_escrow.milestone_statuses.iter().all(|s| *s == MilestoneStatus::Completed);
         if all_completed {
             milestone_escrow.status = EscrowStatus::Released;
         }
-        
+
         env.storage().persistent().set(&key, &milestone_escrow);
-        
+
         env.events().publish(
             (symbol_short!("milestone_completed"), escrow_id),
             (milestone_index, milestone.amount, net_amount)
         );
     }
-    
+
     pub fn dispute_milestone(env: Env, escrow_id: u64, milestone_index: u32, reason: Symbol) {
         let key = (symbol_short!("MESCROW"), escrow_id);
         env.storage()
             .persistent()
             .extend_ttl(&key, ESCROW_TTL_THRESHOLD, ESCROW_TTL_BUMP);
-        
+
         let mut milestone_escrow: MilestoneEscrow = env
             .storage()
             .persistent()
             .get(&key)
             .expect("Milestone escrow not found");
-        
+
         if milestone_escrow.status != EscrowStatus::Active {
             panic!("Milestone escrow not active");
         }
-        
+
         if milestone_index as usize >= milestone_escrow.milestones.len() {
             panic!("Invalid milestone index");
         }
-        
+
         let current_status = milestone_escrow.milestone_statuses.get(milestone_index as usize).unwrap();
         if *current_status != MilestoneStatus::Pending {
             panic!("Milestone not pending");
         }
-        
+
         milestone_escrow.mentor.require_auth();
         milestone_escrow.learner.require_auth();
-        
+
         milestone_escrow.milestone_statuses[milestone_index as usize] = MilestoneStatus::Disputed;
         milestone_escrow.status = EscrowStatus::Disputed;
-        
+
         env.storage().persistent().set(&key, &milestone_escrow);
-        
+
         env.events().publish(
             (symbol_short!("milestone_disputed"), escrow_id),
             (milestone_index, reason)
         );
     }
-    
+
     pub fn get_milestone_escrow(env: Env, escrow_id: u64) -> MilestoneEscrow {
         let key = (symbol_short!("MESCROW"), escrow_id);
         env.storage()
@@ -2326,7 +2362,7 @@ mod test {
             .get(&key)
             .expect("Milestone escrow not found")
     }
-    
+
     pub fn get_milestone_escrow_count(env: Env) -> u64 {
         env.storage()
             .persistent()
