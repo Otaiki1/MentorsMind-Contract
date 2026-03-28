@@ -177,6 +177,11 @@ pub trait SanctionsTrait {
     fn is_sanctioned(env: Env, address: Address) -> bool;
 }
 
+#[soroban_sdk::contractclient(name = "VelocityLimitsClient")]
+pub trait VelocityLimitsTrait {
+    fn check_and_record(env: Env, user: Address, amount_usd: i128) -> bool;
+}
+
 #[contractimpl]
 impl EscrowContract {
     pub fn initialize(
@@ -314,6 +319,17 @@ impl EscrowContract {
             panic!("Insufficient token balance");
         }
 
+        if let Some(vl_addr) = env
+            .storage()
+            .persistent()
+            .get::<DataKey, Address>(&DataKey::VelocityLimits)
+        {
+            let velocity = VelocityLimitsClient::new(&env, &vl_addr);
+            if !velocity.check_and_record(&learner, &amount) {
+                panic!("velocity limit exceeded");
+            }
+        }
+
         let auto_release_delay: u64 = env
             .storage()
             .persistent()
@@ -355,7 +371,7 @@ impl EscrowContract {
         env.storage()
             .persistent()
             .set(&DataKey::Session(session_id.clone()), &count);
-        
+
         count
     }
 
