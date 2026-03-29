@@ -1,8 +1,7 @@
 #![no_std]
 
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, symbol_short, token, Address, BytesN,
-    Env,
+    contract, contracterror, contractimpl, contracttype, symbol_short, token, Address, BytesN, Env,
 };
 
 // ---------------------------------------------------------------------------
@@ -141,13 +140,7 @@ impl PredictionMarket {
     }
 
     /// Place a bet on market outcome
-    pub fn place_bet(
-        env: Env,
-        bettor: Address,
-        market_id: u32,
-        outcome: bool,
-        amount: i128,
-    ) {
+    pub fn place_bet(env: Env, bettor: Address, market_id: u32, outcome: bool, amount: i128) {
         if amount <= 0 {
             panic!("invalid amount");
         }
@@ -197,8 +190,10 @@ impl PredictionMarket {
             .persistent()
             .set(&DataKey::Bet(bettor.clone(), market_id), &bet);
 
-        env.events()
-            .publish((symbol_short!("bet_pl"),), (bettor, market_id, outcome, amount));
+        env.events().publish(
+            (symbol_short!("bet_pl"),),
+            (bettor, market_id, outcome, amount),
+        );
     }
 
     /// Resolve market with outcome (admin/oracle only)
@@ -294,8 +289,10 @@ impl PredictionMarket {
             .persistent()
             .set(&DataKey::Bet(bettor.clone(), market_id), &bet);
 
-        env.events()
-            .publish((symbol_short!("win_clm"),), (bettor, market_id, total_payout));
+        env.events().publish(
+            (symbol_short!("win_clm"),),
+            (bettor, market_id, total_payout),
+        );
     }
 
     /// Cancel market and refund all bets (admin only)
@@ -326,8 +323,7 @@ impl PredictionMarket {
             .instance()
             .set(&DataKey::Market(market_id), &updated_market);
 
-        env.events()
-            .publish((symbol_short!("mkt_can"),), market_id);
+        env.events().publish((symbol_short!("mkt_can"),), market_id);
     }
 
     /// Get market record
