@@ -1,16 +1,14 @@
 [package]
-name = "mentorminds-lending-pool"
+name = "mentorminds-session-oracle"
 version.workspace = true
 edition.workspace = true
-rust-version.workspace = true
+publish = false
 
 [lib]
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-soroban-sdk.workspace = true
-soroban-token-sdk.workspace = true
-shared = { path = "../shared" }
+soroban-sdk = { workspace = true }
 
 [dev-dependencies]
 soroban-sdk = { workspace = true, features = ["testutils"] }

@@ -37,6 +37,7 @@ pub enum DataKey {
     Session(Symbol),
     MentorSessions(Address),
     LearnerSessions(Address),
+    SessionOracle,
 }
 
 // ── Errors ────────────────────────────────────────────────────────────────────
@@ -161,6 +162,50 @@ impl SessionRegistry {
             (
                 symbol_short!("session"),
                 Symbol::new(&env, "session_status_changed"),
+                session_id,
+            ),
+            (old_status, status),
+        );
+    }
+
+    pub fn set_session_oracle(env: Env, oracle: Address) {
+        let backend = Self::require_backend(&env);
+        backend.require_auth();
+        env.storage()
+            .instance()
+            .set(&DataKey::SessionOracle, &oracle);
+    }
+
+    pub fn update_status_from_oracle(
+        env: Env,
+        oracle: Address,
+        session_id: Symbol,
+        status: SessionStatus,
+    ) {
+        let configured_oracle: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::SessionOracle)
+            .expect("Session oracle not configured");
+        oracle.require_auth();
+        if oracle != configured_oracle {
+            panic!("Unauthorized");
+        }
+
+        let session_key = DataKey::Session(session_id.clone());
+        let mut record: SessionRecord = env
+            .storage()
+            .persistent()
+            .get(&session_key)
+            .expect("Session not found");
+
+        let old_status = record.status.clone();
+        record.status = status.clone();
+        env.storage().persistent().set(&session_key, &record);
+        env.events().publish(
+            (
+                symbol_short!("session"),
+                Symbol::new(&env, "session_oracle_status_changed"),
                 session_id,
             ),
             (old_status, status),
