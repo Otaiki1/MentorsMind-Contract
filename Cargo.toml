@@ -40,6 +40,9 @@ members = [
     "tests",
 
     "contracts/isa",
+    "contracts/pause_guardian",
+    "contracts/insurance",
+    "contracts/anomaly_detector",
 ]
 
 [workspace.package]

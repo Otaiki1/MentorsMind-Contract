@@ -1,17 +1,5 @@
 #![no_std]
 use soroban_sdk::{
-    contract,
-    contractimpl,
-    contracttype,
-    symbol_short,
-    token,
-    Address,
-    Env,
-    Symbol,
-};
-
-// ---------------------------------------------------------------------------
-// Types
     contract, contractimpl, contracttype, symbol_short, token, Address, BytesN, Env, Symbol, Vec,
 };
 
@@ -304,12 +292,6 @@ impl EscrowContract {
     }
 
     /// Update the treasury address — admin only.
-        env.storage().persistent().set(&FEE_BPS, &new_fee_bps);
-        env.storage()
-            .persistent()
-            .extend_ttl(&FEE_BPS, ESCROW_TTL_THRESHOLD, ESCROW_TTL_BUMP);
-    }
-
     pub fn update_treasury(env: Env, new_treasury: Address) {
         let admin: Address = env.storage().persistent().get(&ADMIN).expect("Not initialized");
         env.storage().persistent().extend_ttl(&ADMIN, ESCROW_TTL_THRESHOLD, ESCROW_TTL_BUMP);
@@ -320,12 +302,6 @@ impl EscrowContract {
     }
 
     /// Add or remove an approved token (admin only).
-        env.storage().persistent().set(&TREASURY, &new_treasury);
-        env.storage()
-            .persistent()
-            .extend_ttl(&TREASURY, ESCROW_TTL_THRESHOLD, ESCROW_TTL_BUMP);
-    }
-
     pub fn set_approved_token(env: Env, token_address: Address, approved: bool) {
         let admin: Address = env.storage().persistent().get(&ADMIN).expect("Not initialized");
         env.storage().persistent().extend_ttl(&ADMIN, ESCROW_TTL_THRESHOLD, ESCROW_TTL_BUMP);
@@ -584,13 +560,8 @@ impl EscrowContract {
     /// - Escrow status is not `Active`.
     /// - The auto-release window has not yet elapsed.
     pub fn try_auto_release(env: Env, escrow_id: u64) {
-        let key = (symbol_short!("ESCROW"), escrow_id);
-        env.storage().persistent().extend_ttl(&key, ESCROW_TTL_THRESHOLD, ESCROW_TTL_BUMP);
-    pub fn release_partial(env: Env, caller: Address, escrow_id: u64) {
         let key = (ESCROW_SYM, escrow_id);
-        env.storage()
-            .persistent()
-            .extend_ttl(&key, ESCROW_TTL_THRESHOLD, ESCROW_TTL_BUMP);
+        env.storage().persistent().extend_ttl(&key, ESCROW_TTL_THRESHOLD, ESCROW_TTL_BUMP);
 
         let mut escrow: Escrow = env
             .storage()
@@ -603,7 +574,8 @@ impl EscrowContract {
         }
 
         let now = env.ledger().timestamp();
-        let release_after = escrow.session_end_time
+        let release_after = escrow
+            .session_end_time
             .checked_add(escrow.auto_release_delay)
             .expect("Timestamp overflow");
 
@@ -611,11 +583,10 @@ impl EscrowContract {
             panic!("Auto-release window has not elapsed");
         }
 
-        // Emit a dedicated `auto_released` event *before* the internal release
-        // so listeners can distinguish this path from a manual release.
         env.events().publish((symbol_short!("auto_rel"), escrow_id), (escrow_id, now));
 
-        Self::_do_release(&env, &mut escrow, &key);
+        let gross = escrow.amount;
+        Self::_do_release(&env, &mut escrow, &key, gross);
     }
 
     /// Open a dispute (called by mentor or learner).
@@ -843,38 +814,8 @@ impl EscrowContract {
             panic!("mentor_pct must be between 0 and 100");
         }
 
-        // --- Load escrow ---
-        let key = (symbol_short!("ESCROW"), escrow_id);
-        env.storage().persistent().extend_ttl(&key, ESCROW_TTL_THRESHOLD, ESCROW_TTL_BUMP);
-            (
-                symbol_short!("Escrow"),
-                symbol_short!("DispOpen"),
-                escrow_id,
-            ),
-            DisputeOpenedEventData {
-                caller,
-                reason,
-                token_address: escrow.token_address.clone(),
-            },
-        );
-    }
-
-    /// Split disputed funds: `true` = release to mentor (with platform fee), `false` = full refund to learner.
-    pub fn resolve_dispute(env: Env, escrow_id: u64, release_to_mentor: bool) {
-        let admin: Address = env
-            .storage()
-            .persistent()
-            .get(&ADMIN)
-            .expect("Not initialized");
-        env.storage()
-            .persistent()
-            .extend_ttl(&ADMIN, ESCROW_TTL_THRESHOLD, ESCROW_TTL_BUMP);
-        admin.require_auth();
-
         let key = (ESCROW_SYM, escrow_id);
-        env.storage()
-            .persistent()
-            .extend_ttl(&key, ESCROW_TTL_THRESHOLD, ESCROW_TTL_BUMP);
+        env.storage().persistent().extend_ttl(&key, ESCROW_TTL_THRESHOLD, ESCROW_TTL_BUMP);
 
         let mut escrow: Escrow = env
             .storage()
@@ -887,9 +828,8 @@ impl EscrowContract {
         }
 
         // --- Calculate split amounts ---
-        // mentor_amount = floor(amount * mentor_pct / 100)
-        // learner_amount = amount - mentor_amount  (avoids any dust loss)
-        let mentor_amount: i128 = escrow.amount
+        let mentor_amount: i128 = escrow
+            .amount
             .checked_mul(mentor_pct as i128)
             .expect("Overflow")
             .checked_div(100)
@@ -898,123 +838,37 @@ impl EscrowContract {
 
         let token_client = token::Client::new(&env, &escrow.token_address);
 
-        // --- Transfer mentor's share ---
         if mentor_amount > 0 {
             token_client.transfer(&env.current_contract_address(), &escrow.mentor, &mentor_amount);
         }
-
-        // --- Transfer learner's share ---
         if learner_amount > 0 {
-            token_client.transfer(
-                &env.current_contract_address(),
-                &escrow.learner,
-                &learner_amount
-            );
+            token_client.transfer(&env.current_contract_address(), &escrow.learner, &learner_amount);
         }
 
-        // --- Update escrow record ---
-        // Reuse net_amount for mentor's awarded share and platform_fee for
-        // learner's awarded share so callers can inspect the resolution on-chain.
         let now = env.ledger().timestamp();
         escrow.status = EscrowStatus::Resolved;
         escrow.net_amount = mentor_amount;
-        escrow.platform_fee = learner_amount; // repurposed: learner share in resolved state
+        escrow.platform_fee = learner_amount;
         escrow.resolved_at = now;
         env.storage().persistent().set(&key, &escrow);
 
-        // --- Emit event ---
         env.events().publish(
             (symbol_short!("disp_res"), escrow_id),
-            (
-                escrow_id,
-                mentor_pct,
-                mentor_amount,
-                learner_amount,
-                escrow.token_address.clone(),
-                now,
-            )
+            (escrow_id, mentor_pct, mentor_amount, learner_amount, escrow.token_address.clone(), now),
         );
     }
 
     /// Refund tokens to the learner (admin only).
-    ///
-    /// Can be called on `Active` or `Disputed` escrows; panics if already
-    /// `Released`, `Refunded`, or `Resolved`.
-    /// Transfers `escrow.amount` tokens from contract → learner.
-        let now = env.ledger().timestamp();
-        let amount = escrow.amount;
-
-        if release_to_mentor {
-            let fee_bps: u32 = env.storage().persistent().get(&FEE_BPS).unwrap_or(0u32);
-            env.storage()
-                .persistent()
-                .extend_ttl(&FEE_BPS, ESCROW_TTL_THRESHOLD, ESCROW_TTL_BUMP);
-
-            let platform_fee: i128 = amount
-                .checked_mul(fee_bps as i128)
-                .expect("Overflow")
-                .checked_div(10_000)
-                .expect("Division error");
-            let net_amount: i128 = amount.checked_sub(platform_fee).expect("Underflow");
-
-            let treasury: Address = env
-                .storage()
-                .persistent()
-                .get(&TREASURY)
-                .expect("Treasury not found");
-            env.storage()
-                .persistent()
-                .extend_ttl(&TREASURY, ESCROW_TTL_THRESHOLD, ESCROW_TTL_BUMP);
-
-            let token_client = token::Client::new(&env, &escrow.token_address);
-            if platform_fee > 0 {
-                token_client.transfer(&env.current_contract_address(), &treasury, &platform_fee);
-            }
-            token_client.transfer(&env.current_contract_address(), &escrow.mentor, &net_amount);
-
-            escrow.status = EscrowStatus::Resolved;
-            escrow.platform_fee = platform_fee;
-            escrow.net_amount = net_amount;
-            escrow.amount = 0;
-            escrow.resolved_at = now;
-            env.storage().persistent().set(&key, &escrow);
-
-            let session_key = (SESSION_KEY, escrow.session_id.clone());
-            env.storage().persistent().remove(&session_key);
-        } else {
-            let token_client = token::Client::new(&env, &escrow.token_address);
-            token_client.transfer(&env.current_contract_address(), &escrow.learner, &amount);
-            escrow.status = EscrowStatus::Resolved;
-            escrow.net_amount = 0;
-            escrow.platform_fee = amount;
-            escrow.amount = 0;
-            escrow.resolved_at = now;
-            env.storage().persistent().set(&key, &escrow);
-
-            let session_key = (SESSION_KEY, escrow.session_id.clone());
-            env.storage().persistent().remove(&session_key);
-        }
-    }
-
     pub fn refund(env: Env, escrow_id: u64) {
         let admin: Address = env.storage().persistent().get(&ADMIN).expect("Admin not found");
         env.storage().persistent().extend_ttl(&ADMIN, ESCROW_TTL_THRESHOLD, ESCROW_TTL_BUMP);
         admin.require_auth();
 
-        let key = (symbol_short!("ESCROW"), escrow_id);
-        env.storage().persistent().extend_ttl(&key, ESCROW_TTL_THRESHOLD, ESCROW_TTL_BUMP);
         let key = (ESCROW_SYM, escrow_id);
-        env.storage()
-            .persistent()
-            .extend_ttl(&key, ESCROW_TTL_THRESHOLD, ESCROW_TTL_BUMP);
+        env.storage().persistent().extend_ttl(&key, ESCROW_TTL_THRESHOLD, ESCROW_TTL_BUMP);
 
         let mut escrow: Escrow = env.storage().persistent().get(&key).expect("Escrow not found");
 
-        if
-            escrow.status == EscrowStatus::Released ||
-            escrow.status == EscrowStatus::Refunded ||
-            escrow.status == EscrowStatus::Resolved
-        {
         if matches!(
             escrow.status,
             EscrowStatus::Released | EscrowStatus::Refunded | EscrowStatus::Resolved
@@ -1024,12 +878,7 @@ impl EscrowContract {
 
         let refund_amt = escrow.amount;
         let token_client = token::Client::new(&env, &escrow.token_address);
-        token_client.transfer(&env.current_contract_address(), &escrow.learner, &escrow.amount);
-        token_client.transfer(
-            &env.current_contract_address(),
-            &escrow.learner,
-            &refund_amt,
-        );
+        token_client.transfer(&env.current_contract_address(), &escrow.learner, &refund_amt);
 
         escrow.status = EscrowStatus::Refunded;
         escrow.amount = 0;
@@ -1072,14 +921,6 @@ impl EscrowContract {
     pub fn get_auto_release_delay(env: Env) -> u64 {
         env.storage().persistent().extend_ttl(&AUTO_REL_DLY, ESCROW_TTL_THRESHOLD, ESCROW_TTL_BUMP);
         env.storage().persistent().get(&AUTO_REL_DLY).unwrap_or(DEFAULT_AUTO_RELEASE_DELAY)
-    }
-            (symbol_short!("Escrow"), symbol_short!("Refund"), escrow_id),
-            EscrowRefundedEventData {
-                learner: escrow.learner.clone(),
-                amount: refund_amt,
-                token_address: escrow.token_address,
-            },
-        );
     }
 
     pub fn submit_review(env: Env, caller: Address, escrow_id: u64, reason: Symbol) {
@@ -1209,27 +1050,6 @@ impl EscrowContract {
             panic!("Group is full");
         }
 
-    /// Get the current contract version
-    pub fn get_version(env: Env) -> u32 {
-        env.storage()
-            .persistent()
-            .extend_ttl(&CONTRACT_VERSION, ESCROW_TTL_THRESHOLD, ESCROW_TTL_BUMP);
-        env.storage().persistent().get(&CONTRACT_VERSION).unwrap_or(0)
-    }
-
-    // -----------------------------------------------------------------------
-    // Internal helpers
-    // -----------------------------------------------------------------------
-
-    /// Shared release logic used by both `release_funds` and `try_auto_release`.
-    ///
-    /// Computes the platform fee, transfers fee → treasury and net → mentor,
-    /// then persists the updated escrow with `Released` status.
-    fn _do_release(env: &Env, escrow: &mut Escrow, key: &(Symbol, u64)) {
-        let fee_bps: u32 = env.storage().persistent().get(&FEE_BPS).unwrap_or(0u32);
-        env.storage().persistent().extend_ttl(&FEE_BPS, ESCROW_TTL_THRESHOLD, ESCROW_TTL_BUMP);
-
-        let platform_fee: i128 = escrow.amount
         learner.require_auth();
 
         for i in 0..group.learners.len() {

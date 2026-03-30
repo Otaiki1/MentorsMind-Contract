@@ -72,6 +72,7 @@ pub enum DataKey {
     Balance(Address),
     TotalSupply,
     Metadata,
+    PauseGuardian,
 }
 
 const SUPPLY_CAP: i128 = 100_000_000 * 10_000_000; // 100M with 7 decimals
@@ -126,6 +127,8 @@ impl MNTToken {
             .expect("Not initialized");
         admin.require_auth();
 
+        Self::assert_not_paused(&env);
+
         if amount <= 0 {
             panic!("Amount must be positive");
         }
@@ -171,6 +174,7 @@ impl MNTToken {
     /// - Insufficient balance
     pub fn do_burn(env: Env, from: Address, amount: i128) {
         from.require_auth();
+        Self::assert_not_paused(&env);
 
         if amount <= 0 {
             panic!("Amount must be positive");
@@ -196,6 +200,35 @@ impl MNTToken {
             .persistent()
             .get(&DataKey::TotalSupply)
             .unwrap_or(0)
+    }
+
+    /// Set the pause guardian contract address. Admin only.
+    pub fn set_pause_guardian(env: Env, guardian: Address) {
+        let admin: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Admin)
+            .expect("Not initialized");
+        admin.require_auth();
+        env.storage().persistent().set(&DataKey::PauseGuardian, &guardian);
+    }
+
+    /// Panics if the pause guardian reports the system is paused.
+    fn assert_not_paused(env: &Env) {
+        if let Some(guardian) = env
+            .storage()
+            .persistent()
+            .get::<_, Address>(&DataKey::PauseGuardian)
+        {
+            let is_paused: bool = env.invoke_contract(
+                &guardian,
+                &soroban_sdk::Symbol::new(env, "is_paused"),
+                soroban_sdk::Vec::new(env),
+            );
+            if is_paused {
+                panic!("Contract is paused");
+            }
+        }
     }
 }
 
@@ -258,6 +291,7 @@ impl TokenInterface for MNTToken {
     /// - Insufficient balance
     fn transfer(env: Env, from: Address, to: Address, amount: i128) {
         from.require_auth();
+        Self::assert_not_paused(&env);
         if amount <= 0 {
             panic!("Amount must be positive");
         }
@@ -299,6 +333,7 @@ impl TokenInterface for MNTToken {
     /// - Insufficient balance
     fn transfer_from(env: Env, spender: Address, from: Address, to: Address, amount: i128) {
         spender.require_auth();
+        Self::assert_not_paused(&env);
         if amount <= 0 {
             panic!("Amount must be positive");
         }
@@ -347,6 +382,7 @@ impl TokenInterface for MNTToken {
 
     fn burn_from(env: Env, spender: Address, from: Address, amount: i128) {
         spender.require_auth();
+        Self::assert_not_paused(&env);
         if amount <= 0 {
             panic!("Amount must be positive");
         }

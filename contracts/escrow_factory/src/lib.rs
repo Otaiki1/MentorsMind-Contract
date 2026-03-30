@@ -16,6 +16,7 @@ pub struct EscrowInfo {
 // Storage keys
 const ADMIN: Symbol = symbol_short!("ADMIN");
 const IMPLEMENTATION: Symbol = symbol_short!("IMPL");
+const PAUSE_GUARDIAN: Symbol = symbol_short!("PAUSE_GD");
 const ESCROW_MAPPING: Symbol = symbol_short!("ESC_MAP");
 const ESCROW_LIST: Symbol = symbol_short!("ESC_LIST");
 const ESCROW_COUNT: Symbol = symbol_short!("ESC_CNT");
@@ -27,7 +28,7 @@ pub struct EscrowFactory;
 
 #[contractimpl]
 impl EscrowFactory {
-    /// Initialize the factory with admin and implementation contract
+    /// Initialize the factory with admin, implementation contract, and optional pause guardian.
     pub fn initialize(env: Env, admin: Address, implementation_address: Address) {
         if env.storage().persistent().has(&ADMIN) {
             panic!("Already initialized");
@@ -55,6 +56,16 @@ impl EscrowFactory {
         );
     }
 
+    /// Set the pause guardian contract address. Admin only.
+    pub fn set_pause_guardian(env: Env, guardian: Address) {
+        let admin = Self::admin(&env);
+        admin.require_auth();
+        env.storage().persistent().set(&PAUSE_GUARDIAN, &guardian);
+        env.storage()
+            .persistent()
+            .extend_ttl(&PAUSE_GUARDIAN, FACTORY_TTL_THRESHOLD, FACTORY_TTL_BUMP);
+    }
+
     /// Deploy a new escrow contract instance using minimal proxy pattern
     pub fn deploy_escrow(
         env: Env,
@@ -64,6 +75,17 @@ impl EscrowFactory {
         token: Address,
         session_id: Symbol,
     ) -> Address {
+        // Check pause guardian
+        if let Some(guardian) = env.storage().persistent().get::<_, Address>(&PAUSE_GUARDIAN) {
+            let is_paused: bool = env.invoke_contract(
+                &guardian,
+                &Symbol::new(&env, "is_paused"),
+                soroban_sdk::Vec::new(&env),
+            );
+            if is_paused {
+                panic!("Contract is paused");
+            }
+        }
         // Check if session ID already exists
         let session_key = (ESCROW_MAPPING, session_id.clone());
         if env.storage().persistent().has(&session_key) {
