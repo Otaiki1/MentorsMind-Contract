@@ -7,11 +7,29 @@ import {
   nativeToScVal,
 } from 'stellar-sdk';
 
+// ── Startup SDK capability check ────────────────────────────────────────────
+// Fail loudly at import time rather than producing a cryptic Soroban type
+// error at runtime when a contract invocation is attempted.
+(function assertSorobanCapable() {
+  if (typeof nativeToScVal !== 'function') {
+    throw new Error(
+      'stellar-sdk version does not support nativeToScVal — upgrade to v10.4+ ' +
+      '(current package.json pins "stellar-sdk": "10.4.0")'
+    );
+  }
+  if (typeof rpc?.Server !== 'function') {
+    throw new Error(
+      'stellar-sdk version does not expose rpc.Server — Soroban RPC support ' +
+      'requires stellar-sdk v10.4+ (current package.json pins "stellar-sdk": "10.4.0")'
+    );
+  }
+})();
+// ────────────────────────────────────────────────────────────────────────────
+
 const RPC_TIMEOUT_MS = 10_000;
 const MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 1_500;
 
-/** Rejects after `ms` milliseconds with a timeout error. */
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
   return Promise.race([
     promise,
@@ -21,10 +39,6 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
   ]);
 }
 
-/**
- * Retry wrapper with per-attempt AbortController so in-flight requests
- * from a previous attempt don't bleed into the next one.
- */
 async function withRetry<T>(
   fn: (signal: AbortSignal) => Promise<T>,
   retries: number = MAX_RETRIES,
@@ -106,7 +120,10 @@ export class AdminEscrowService {
         'getAccount'
       );
 
-      const operation = this.contract.call('refund', nativeToScVal(escrowId, { type: 'u64' }));
+      const operation = this.contract.call(
+        'refund',
+        nativeToScVal(escrowId, { type: 'u64' })
+      );
 
       const transaction = new TransactionBuilder(sourceAccount, {
         fee: '1000',
