@@ -8,6 +8,8 @@ import {
 } from 'stellar-sdk';
 
 // ── Startup SDK capability check ────────────────────────────────────────────
+// Fail loudly at import time rather than producing a cryptic Soroban type
+// error at runtime when a contract invocation is attempted.
 (function assertSorobanCapable() {
   if (typeof nativeToScVal !== 'function') {
     throw new Error(
@@ -57,34 +59,6 @@ async function withRetry<T>(
   }
   throw lastError;
 }
-
-// ── Escrow record store ──────────────────────────────────────────────────────
-// Swap this interface + lookup for a real DB query (Prisma/TypeORM) in production.
-export interface EscrowRecord {
-  escrowId: number;
-  learnerId: string; // off-chain user ID that must match releasedBy
-}
-
-// In-memory store — replace with a real DB query in production.
-const escrowRecords = new Map<number, EscrowRecord>();
-
-/**
- * Register an escrow record so releaseFunds can verify the caller.
- * Call this immediately after the on-chain create_escrow succeeds.
- */
-export function registerEscrowRecord(record: EscrowRecord): void {
-  escrowRecords.set(record.escrowId, record);
-}
-
-/**
- * Look up the off-chain escrow record by ID.
- * Replace the body with a real DB query in production, e.g.:
- *   return db.escrows.findUnique({ where: { escrowId } });
- */
-async function findEscrowRecord(escrowId: number): Promise<EscrowRecord | null> {
-  return escrowRecords.get(escrowId) ?? null;
-}
-// ────────────────────────────────────────────────────────────────────────────
 
 export class AdminEscrowService {
   private contract: Contract;
