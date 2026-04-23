@@ -74,6 +74,63 @@ export class AdminEscrowService {
     this.adminKeypair = Keypair.fromSecret(adminSecret);
   }
 
+  /**
+   * Release escrowed funds to the mentor.
+   *
+   * Defense-in-depth: verifies `releasedBy` matches the escrow's registered
+   * learnerId before invoking the contract, regardless of what the call-site
+   * checked. This prevents bypasses from new code paths that forget the check.
+   */
+  async releaseFunds({ escrowId, releasedBy }: { escrowId: number; releasedBy: string }): Promise<string> {
+    // ── Authorization guard ────────────────────────────────────────────────
+    const record = await findEscrowRecord(escrowId);
+    if (!record) {
+      throw new Error(`Escrow ${escrowId} not found — cannot verify caller identity`);
+    }
+    if (record.learnerId !== releasedBy) {
+      throw new Error(
+        `Unauthorized: releasedBy "${releasedBy}" is not the learner for escrow ${escrowId}`
+      );
+    }
+    // ── End authorization guard ────────────────────────────────────────────
+
+    return withRetry(async (_signal) => {
+      const sourceAccount = await withTimeout(
+        this.server.getAccount(this.adminKeypair.publicKey()),
+        RPC_TIMEOUT_MS,
+        'getAccount'
+      );
+
+      const operation = this.contract.call(
+        'release_funds',
+        nativeToScVal(releasedBy, { type: 'address' }),
+        nativeToScVal(escrowId, { type: 'u64' })
+      );
+
+      const transaction = new TransactionBuilder(sourceAccount, {
+        fee: '1000',
+        networkPassphrase: Networks.TESTNET,
+      })
+        .addOperation(operation)
+        .setTimeout(60)
+        .build();
+
+      transaction.sign(this.adminKeypair);
+
+      const sendResponse = await withTimeout(
+        this.server.sendTransaction(transaction),
+        RPC_TIMEOUT_MS,
+        'sendTransaction'
+      ) as Awaited<ReturnType<typeof this.server.sendTransaction>>;
+
+      if (sendResponse.status !== 'PENDING') {
+        throw new Error(`Failed to send transaction: ${sendResponse.status}`);
+      }
+
+      return sendResponse.hash;
+    });
+  }
+
   async resolveDispute(escrowId: number, releaseToMentor: boolean): Promise<string> {
     return withRetry(async (_signal) => {
       const sourceAccount = await withTimeout(
