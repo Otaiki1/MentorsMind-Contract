@@ -32,27 +32,62 @@ export class StellarAccountService {
   }
 
   /**
+   * Checks whether a Stellar account already exists on the network.
+   */
+  async accountExists(publicKey: string): Promise<boolean> {
+    try {
+      await this.server.loadAccount(publicKey);
+      return true;
+    } catch (e: any) {
+      if (e?.response?.status === 404) return false;
+      throw e;
+    }
+  }
+
+  /**
    * Funds a new or existing Stellar account with a starting balance.
    * Uses dynamic fee estimation to ensure transactions succeed during surge pricing.
-   * 
+   * Idempotent: safe to call multiple times for the same destination/userId.
+   *
    * @param destination The public key of the account to fund.
    * @param userId The ID of the user owning the wallet.
    */
   async fundAccount(destination: string, userId: string) {
+    // 1. Idempotency check: if already activated in DB, return early
+    const existing = await this.pool.query(
+      'SELECT transaction_hash FROM transactions WHERE user_id = $1 AND destination = $2 AND status = $3 LIMIT 1',
+      [userId, destination, 'completed']
+    );
+    if (existing.rowCount && existing.rowCount > 0) {
+      return existing.rows[0].transaction_hash as string;
+    }
+
+    // 2. Check if the account already exists on-chain; skip funding if so
+    const alreadyFunded = await this.accountExists(destination);
+
+    if (alreadyFunded) {
+      // Account exists on-chain but DB has no completed record — reconcile
+      await this.pool.query(
+        'INSERT INTO transactions (user_id, amount, destination, status, transaction_hash, created_at) VALUES ($1, $2, $3, $4, $5, NOW()) ON CONFLICT DO NOTHING',
+        [userId, STARTING_BALANCE, destination, 'completed', 'pre-existing']
+      );
+      return 'pre-existing';
+    }
+
     try {
-      // 1. Fetch recommended fee estimate dynamically
+      // 3. Fetch recommended fee estimate dynamically
       const { recommended_fee } = await stellarFeesService.getFeeEstimate(1);
-      
-      // 2. Apply a safety cap to the fee to prevent runaway costs
+
+      // 4. Apply a safety cap to the fee to prevent runaway costs
       const finalFee = Math.min(
-        parseInt(recommended_fee, 10), 
+        parseInt(recommended_fee, 10),
         parseInt(MAX_FEE_STROOPS, 10)
       ).toString();
 
-      // 3. Load the source account to get the current sequence number
+      // 5. Load the source account to get the current sequence number
       const sourceAccount = await this.server.loadAccount(this.adminKeypair.publicKey());
-      
-      // 4. Build the transaction with the dynamic fee
+
+      // 6. Build the transaction with the dynamic fee
       const transaction = new TransactionBuilder(sourceAccount, {
         fee: finalFee,
         networkPassphrase: Networks.TESTNET,
@@ -67,28 +102,37 @@ export class StellarAccountService {
         .setTimeout(30)
         .build();
 
-      // 5. Sign the transaction
+      // 7. Sign and submit
       transaction.sign(this.adminKeypair);
-
-      // 6. Submit to the network
       const submissionResult = await this.server.submitTransaction(transaction);
 
-      // 7. Record the transaction in the database
+      // 8. Record success in the database
       await this.pool.query(
         'INSERT INTO transactions (user_id, amount, destination, status, transaction_hash, created_at) VALUES ($1, $2, $3, $4, $5, NOW())',
         [userId, STARTING_BALANCE, destination, 'completed', submissionResult.hash]
       );
 
       return submissionResult.hash;
-    } catch (error) {
+    } catch (error: any) {
+      // 9. Treat op_already_exists as success — account was funded by a prior attempt
+      const extras = error?.response?.data?.extras;
+      const resultCodes: string[] = extras?.result_codes?.operations ?? [];
+      if (resultCodes.includes('op_already_exists')) {
+        await this.pool.query(
+          'INSERT INTO transactions (user_id, amount, destination, status, transaction_hash, created_at) VALUES ($1, $2, $3, $4, $5, NOW()) ON CONFLICT DO NOTHING',
+          [userId, STARTING_BALANCE, destination, 'completed', 'op_already_exists']
+        );
+        return 'op_already_exists';
+      }
+
       console.error('[StellarAccountService] Funding failed:', error);
-      
+
       // Record failure in database for audit/retry purposes
       await this.pool.query(
         'INSERT INTO transactions (user_id, amount, destination, status, created_at) VALUES ($1, $2, $3, $4, NOW())',
         [userId, STARTING_BALANCE, destination, 'failed']
       );
-      
+
       throw error;
     }
   }
