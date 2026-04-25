@@ -1,7 +1,9 @@
 import { SorobanEscrowService } from "./escrow-api.service";
+import { StellarFeesService } from "./stellarFees.service";
 
 // Max Stellar amount: 2^63 - 1 stroops = 922337203685.4775807 XLM
 const MAX_STELLAR_AMOUNT = 922337203685.4775807;
+const MAX_STELLAR_STROOPS = BigInt("9223372036854775807");
 
 /**
  * Validates that a string is a valid Stellar amount:
@@ -10,7 +12,8 @@ const MAX_STELLAR_AMOUNT = 922337203685.4775807;
  * - At most 7 decimal places
  * - Does not exceed the max Stellar amount (922337203685.4775807 XLM)
  *
- * Throws a 400-style error with a descriptive message if invalid.
+ * Uses BigInt stroop arithmetic to avoid floating-point precision issues
+ * near the max amount boundary.
  */
 export function validateStellarAmount(amount: string): void {
   if (!/^\d+(\.\d+)?$/.test(amount)) {
@@ -20,24 +23,27 @@ export function validateStellarAmount(amount: string): void {
     );
   }
 
-  const value = parseFloat(amount);
+  const [intPart, decimalPart = ""] = amount.split(".");
 
-  if (value <= 0) {
-    throw Object.assign(
-      new Error(`Invalid amount "${amount}": must be greater than 0`),
-      { statusCode: 400 }
-    );
-  }
-
-  const decimalPart = amount.split(".")[1];
-  if (decimalPart && decimalPart.length > 7) {
+  if (decimalPart.length > 7) {
     throw Object.assign(
       new Error(`Invalid amount "${amount}": must have at most 7 decimal places`),
       { statusCode: 400 }
     );
   }
 
-  if (value > MAX_STELLAR_AMOUNT) {
+  const paddedDecimal = decimalPart.padEnd(7, "0");
+  const stroops =
+    BigInt(intPart) * BigInt(10_000_000) + BigInt(paddedDecimal);
+
+  if (stroops <= 0n) {
+    throw Object.assign(
+      new Error(`Invalid amount "${amount}": must be greater than 0`),
+      { statusCode: 400 }
+    );
+  }
+
+  if (stroops > MAX_STELLAR_STROOPS) {
     throw Object.assign(
       new Error(
         `Invalid amount "${amount}": exceeds maximum Stellar amount of ${MAX_STELLAR_AMOUNT}`
@@ -47,12 +53,88 @@ export function validateStellarAmount(amount: string): void {
   }
 }
 
+export type BookingPaymentStatus =
+  | "pending"
+  | "paid"
+  | "failed"
+  | "disputed"
+  | "refunded";
+
+export interface EscrowOnChainState {
+  escrowId: string;
+  status: "active" | "released" | "disputed" | "refunded" | "resolved";
+}
+
+export interface BookingRecord {
+  id: string;
+  escrowId: string;
+  status: string;
+  paymentStatus: BookingPaymentStatus;
+}
+
+export interface BookingRepository {
+  updatePaymentStatus(
+    bookingId: string,
+    status: BookingPaymentStatus
+  ): Promise<void>;
+  findBookingsWithActiveEscrow(statuses: string[]): Promise<BookingRecord[]>;
+}
+
+export interface EscrowStateResolver {
+  getEscrowState(escrowId: string): Promise<EscrowOnChainState>;
+}
+
+export interface ContractTransactionResult {
+  fee: string;
+}
+
+export class StellarSorobanClient {
+  constructor(
+    private readonly feesService: Pick<StellarFeesService, "getFeeEstimate">
+  ) {}
+
+  async buildContractTransaction(): Promise<ContractTransactionResult> {
+    const feeMultiplier = parseInt(
+      process.env.SOROBAN_FEE_MULTIPLIER || "10",
+      10
+    );
+    const { recommended_fee } = await this.feesService.getFeeEstimate(1);
+    const fee = String(parseInt(recommended_fee, 10) * feeMultiplier);
+    return { fee };
+  }
+
+  async buildContractTransactionWithRetry(
+    maxRetries = 2
+  ): Promise<ContractTransactionResult> {
+    let feeMultiplier = parseInt(
+      process.env.SOROBAN_FEE_MULTIPLIER || "10",
+      10
+    );
+    const { recommended_fee } = await this.feesService.getFeeEstimate(1);
+    let baseFee = parseInt(recommended_fee, 10) * feeMultiplier;
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        return { fee: String(baseFee) };
+      } catch (err: unknown) {
+        const error = err as { result_codes?: { transaction?: string } };
+        if (
+          error?.result_codes?.transaction === "tx_insufficient_fee" &&
+          attempt < maxRetries
+        ) {
+          baseFee = baseFee * 2;
+        } else {
+          throw err;
+        }
+      }
+    }
+    return { fee: String(baseFee) };
+  }
+}
+
 /**
  * Concrete SorobanEscrowService implementation that validates the amount
  * before passing it to the Soroban contract.
- *
- * Extend this class (or inject a contract client) to wire up the actual
- * Soroban RPC call.
  */
 export class SorobanEscrowServiceImpl implements SorobanEscrowService {
   private readonly expectedContractVersion =
@@ -131,6 +213,59 @@ export class SorobanEscrowServiceImpl implements SorobanEscrowService {
     // const result = await sorobanClient.invoke('create_escrow', { ... });
     // return { txHash: result.hash, contractVersion: this.resolvedContractVersion };
 
-    throw new Error("SorobanEscrowServiceImpl: contract invocation not yet wired up");
+    throw new Error(
+      "SorobanEscrowServiceImpl: contract invocation not yet wired up"
+    );
+  }
+
+  /**
+   * Applies the on-chain escrow state to a booking record.
+   *
+   * Disputed escrows must set payment_status = 'disputed' — never 'failed'.
+   * A dispute means funds are held in escrow pending resolution, not that
+   * payment failed.
+   */
+  async applyEscrowStateToBookings(
+    state: EscrowOnChainState,
+    bookingId: string,
+    repo: BookingRepository
+  ): Promise<void> {
+    switch (state.status) {
+      case "disputed":
+        await repo.updatePaymentStatus(bookingId, "disputed");
+        break;
+      case "released":
+        await repo.updatePaymentStatus(bookingId, "paid");
+        break;
+      case "refunded":
+        await repo.updatePaymentStatus(bookingId, "refunded");
+        break;
+      // 'active' and 'resolved' require no payment status change
+    }
+  }
+
+  /**
+   * Syncs on-chain escrow state to bookings.
+   *
+   * Includes 'pending' bookings because escrow is created when payment is
+   * confirmed, which can happen before the mentor confirms the booking.
+   * Omitting 'pending' means timeout refunds on pending bookings are never
+   * reflected in the DB.
+   */
+  async syncPendingEscrows(
+    bookingRepo: BookingRepository,
+    escrowStateResolver: EscrowStateResolver
+  ): Promise<void> {
+    const bookings = await bookingRepo.findBookingsWithActiveEscrow([
+      "pending",
+      "confirmed",
+      "completed",
+      "cancelled",
+    ]);
+
+    for (const booking of bookings) {
+      const state = await escrowStateResolver.getEscrowState(booking.escrowId);
+      await this.applyEscrowStateToBookings(state, booking.id, bookingRepo);
+    }
   }
 }
