@@ -2,6 +2,7 @@ import {
   EscrowApiService,
   EscrowRecord,
   EscrowRepository,
+  EscrowStatus,
   SorobanEscrowService,
 } from "../src/services/escrow-api.service";
 
@@ -18,7 +19,11 @@ class InMemoryEscrowRepository implements EscrowRepository {
     this.store.delete(id);
   }
 
-  async markFunded(id: string, stellarTxHash: string): Promise<EscrowRecord> {
+  async markFunded(
+    id: string,
+    stellarTxHash: string,
+    sorobanContractVersion: string | null
+  ): Promise<EscrowRecord> {
     const record = this.store.get(id);
     if (!record) {
       throw new Error("Escrow not found");
@@ -28,6 +33,7 @@ class InMemoryEscrowRepository implements EscrowRepository {
       ...record,
       status: "funded",
       stellarTxHash,
+      sorobanContractVersion,
     };
     this.store.set(id, updated);
     return updated;
@@ -44,12 +50,12 @@ class InMemoryEscrowRepository implements EscrowRepository {
 
   async findByUserId(
     userId: string,
-    role: 'mentor' | 'learner',
+    role: "mentor" | "learner",
     limit: number,
     offset: number,
     status?: string
   ): Promise<{ escrows: EscrowRecord[]; total: number }> {
-    const userField = role === 'mentor' ? 'mentorId' : 'learnerId';
+    const userField = role === "mentor" ? "mentorId" : "learnerId";
     let filtered = [...this.store.values()].filter(
       (record) => record[userField] === userId
     );
@@ -59,6 +65,20 @@ class InMemoryEscrowRepository implements EscrowRepository {
     const total = filtered.length;
     const escrows = filtered.slice(offset, offset + limit);
     return { escrows, total };
+  }
+
+  async findById(id: string): Promise<EscrowRecord | null> {
+    return this.store.get(id) ?? null;
+  }
+
+  async updateStatus(id: string, status: EscrowStatus): Promise<EscrowRecord> {
+    const record = this.store.get(id);
+    if (!record) {
+      throw new Error("Escrow not found");
+    }
+    const updated: EscrowRecord = { ...record, status };
+    this.store.set(id, updated);
+    return updated;
   }
 
   getById(id: string): EscrowRecord | undefined {
@@ -90,7 +110,9 @@ describe("EscrowApiService.createEscrow atomicity", () => {
   it("marks escrow funded when Soroban create succeeds", async () => {
     const repo = new InMemoryEscrowRepository();
     const soroban: SorobanEscrowService = {
-      createEscrow: jest.fn().mockResolvedValue({ txHash: "tx_abc" }),
+      createEscrow: jest
+        .fn()
+        .mockResolvedValue({ txHash: "tx_abc", contractVersion: "v1.2.0" }),
     };
 
     const service = new EscrowApiService(repo, soroban);
@@ -104,12 +126,15 @@ describe("EscrowApiService.createEscrow atomicity", () => {
 
     expect(record.status).toBe("funded");
     expect(record.stellarTxHash).toBe("tx_abc");
+    expect(record.sorobanContractVersion).toBe("v1.2.0");
   });
 
   it("returns pending escrows with missing tx hash after the cutoff", async () => {
     const repo = new InMemoryEscrowRepository();
     const soroban: SorobanEscrowService = {
-      createEscrow: jest.fn().mockResolvedValue({ txHash: "tx_any" }),
+      createEscrow: jest
+        .fn()
+        .mockResolvedValue({ txHash: "tx_any", contractVersion: "v1.2.0" }),
     };
     const service = new EscrowApiService(repo, soroban);
 
@@ -120,6 +145,7 @@ describe("EscrowApiService.createEscrow atomicity", () => {
       amount: "1000",
       status: "pending",
       stellarTxHash: null,
+      sorobanContractVersion: null,
     });
     pending.createdAt = new Date("2026-01-01T00:00:00.000Z");
 
@@ -134,7 +160,9 @@ describe("EscrowApiService.createEscrow atomicity", () => {
   it("listUserEscrows filters by user and role with status", async () => {
     const repo = new InMemoryEscrowRepository();
     const soroban: SorobanEscrowService = {
-      createEscrow: jest.fn().mockResolvedValue({ txHash: "tx_any" }),
+      createEscrow: jest
+        .fn()
+        .mockResolvedValue({ txHash: "tx_any", contractVersion: "v1.2.0" }),
     };
     const service = new EscrowApiService(repo, soroban);
 
@@ -146,6 +174,7 @@ describe("EscrowApiService.createEscrow atomicity", () => {
       amount: "1000",
       status: "pending",
       stellarTxHash: null,
+      sorobanContractVersion: null,
     });
     await repo.create({
       id: "esc-2",
@@ -154,6 +183,7 @@ describe("EscrowApiService.createEscrow atomicity", () => {
       amount: "2000",
       status: "funded",
       stellarTxHash: "tx_123",
+      sorobanContractVersion: "v1.2.0",
     });
     await repo.create({
       id: "esc-3",
@@ -162,6 +192,7 @@ describe("EscrowApiService.createEscrow atomicity", () => {
       amount: "1500",
       status: "pending",
       stellarTxHash: null,
+      sorobanContractVersion: null,
     });
 
     // List for mentor-1 as mentor, no status filter

@@ -1,7 +1,10 @@
 import { SorobanEscrowService } from "./escrow-api.service";
+import { StellarFeesService } from "./stellarFees.service";
+import { Networks, rpc as SorobanRpc } from '@stellar/stellar-sdk';
 
 // Max Stellar amount: 2^63 - 1 stroops = 922337203685.4775807 XLM
 const MAX_STELLAR_AMOUNT = 922337203685.4775807;
+const MAX_STELLAR_STROOPS = BigInt("9223372036854775807");
 
 /**
  * Validates that a string is a valid Stellar amount:
@@ -10,7 +13,8 @@ const MAX_STELLAR_AMOUNT = 922337203685.4775807;
  * - At most 7 decimal places
  * - Does not exceed the max Stellar amount (922337203685.4775807 XLM)
  *
- * Throws a 400-style error with a descriptive message if invalid.
+ * Uses BigInt stroop arithmetic to avoid floating-point precision issues
+ * near the max amount boundary.
  */
 export function validateStellarAmount(amount: string): void {
   if (!/^\d+(\.\d+)?$/.test(amount)) {
@@ -20,24 +24,27 @@ export function validateStellarAmount(amount: string): void {
     );
   }
 
-  const value = parseFloat(amount);
+  const [intPart, decimalPart = ""] = amount.split(".");
 
-  if (value <= 0) {
-    throw Object.assign(
-      new Error(`Invalid amount "${amount}": must be greater than 0`),
-      { statusCode: 400 }
-    );
-  }
-
-  const decimalPart = amount.split(".")[1];
-  if (decimalPart && decimalPart.length > 7) {
+  if (decimalPart.length > 7) {
     throw Object.assign(
       new Error(`Invalid amount "${amount}": must have at most 7 decimal places`),
       { statusCode: 400 }
     );
   }
 
-  if (value > MAX_STELLAR_AMOUNT) {
+  const paddedDecimal = decimalPart.padEnd(7, "0");
+  const stroops =
+    BigInt(intPart) * BigInt(10_000_000) + BigInt(paddedDecimal);
+
+  if (stroops <= 0n) {
+    throw Object.assign(
+      new Error(`Invalid amount "${amount}": must be greater than 0`),
+      { statusCode: 400 }
+    );
+  }
+
+  if (stroops > MAX_STELLAR_STROOPS) {
     throw Object.assign(
       new Error(
         `Invalid amount "${amount}": exceeds maximum Stellar amount of ${MAX_STELLAR_AMOUNT}`
@@ -47,121 +54,153 @@ export function validateStellarAmount(amount: string): void {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Circuit Breaker
-// ---------------------------------------------------------------------------
+export type BookingPaymentStatus =
+  | "pending"
+  | "paid"
+  | "failed"
+  | "disputed"
+  | "refunded";
 
-type CircuitState = "closed" | "open" | "half-open";
-
-interface CircuitBreakerOptions {
-  /** Consecutive failures before opening the circuit. Default: 5 */
-  failureThreshold: number;
-  /** Milliseconds to wait in open state before probing. Default: 30_000 */
-  recoveryTimeoutMs: number;
+export interface EscrowOnChainState {
+  escrowId: string;
+  status: "active" | "released" | "disputed" | "refunded" | "resolved";
 }
 
-/**
- * Lightweight counter-based circuit breaker.
- *
- * States:
- *   closed    — calls pass through normally
- *   open      — calls fast-fail immediately (RPC node is known unhealthy)
- *   half-open — one probe call is allowed; success → closed, failure → open
- */
-export class SorobanCircuitBreaker {
-  private state: CircuitState = "closed";
-  private consecutiveFailures = 0;
-  private openedAt: number | null = null;
+export interface BookingRecord {
+  id: string;
+  escrowId: string;
+  status: string;
+  paymentStatus: BookingPaymentStatus;
+}
 
-  constructor(private readonly options: CircuitBreakerOptions = {
-    failureThreshold: 5,
-    recoveryTimeoutMs: 30_000,
-  }) {}
+export interface BookingRepository {
+  updatePaymentStatus(
+    bookingId: string,
+    status: BookingPaymentStatus
+  ): Promise<void>;
+  findBookingsWithActiveEscrow(statuses: string[]): Promise<BookingRecord[]>;
+}
 
-  get isOpen(): boolean {
-    return this.state === "open";
+export interface EscrowStateResolver {
+  getEscrowState(escrowId: string): Promise<EscrowOnChainState>;
+}
+
+export interface ContractTransactionResult {
+  fee: string;
+}
+
+export class StellarSorobanClient {
+  constructor(
+    private readonly feesService: Pick<StellarFeesService, "getFeeEstimate">
+  ) {}
+
+  async buildContractTransaction(): Promise<ContractTransactionResult> {
+    const feeMultiplier = parseInt(
+      process.env.SOROBAN_FEE_MULTIPLIER || "10",
+      10
+    );
+    const { recommended_fee } = await this.feesService.getFeeEstimate(1);
+    const fee = String(parseInt(recommended_fee, 10) * feeMultiplier);
+    return { fee };
   }
 
-  /**
-   * Wraps an async call with circuit-breaker logic.
-   * Throws immediately when the circuit is open (and not yet ready to probe).
-   */
-  async call<T>(fn: () => Promise<T>): Promise<T> {
-    if (this.state === "open") {
-      const elapsed = Date.now() - (this.openedAt ?? 0);
-      if (elapsed < this.options.recoveryTimeoutMs) {
-        throw Object.assign(
-          new Error("Soroban RPC circuit breaker is OPEN — fast-failing request"),
-          { statusCode: 503, circuitOpen: true }
-        );
+  async buildContractTransactionWithRetry(
+    maxRetries = 2
+  ): Promise<ContractTransactionResult> {
+    let feeMultiplier = parseInt(
+      process.env.SOROBAN_FEE_MULTIPLIER || "10",
+      10
+    );
+    const { recommended_fee } = await this.feesService.getFeeEstimate(1);
+    let baseFee = parseInt(recommended_fee, 10) * feeMultiplier;
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        return { fee: String(baseFee) };
+      } catch (err: unknown) {
+        const error = err as { result_codes?: { transaction?: string } };
+        if (
+          error?.result_codes?.transaction === "tx_insufficient_fee" &&
+          attempt < maxRetries
+        ) {
+          baseFee = baseFee * 2;
+        } else {
+          throw err;
+        }
       }
-      // Transition to half-open to allow one probe
-      this.state = "half-open";
-      console.warn("[SorobanCircuitBreaker] Transitioning to HALF-OPEN — probing RPC node");
     }
-
-    try {
-      const result = await fn();
-      this.onSuccess();
-      return result;
-    } catch (err) {
-      this.onFailure();
-      throw err;
-    }
-  }
-
-  private onSuccess(): void {
-    if (this.state !== "closed") {
-      console.info("[SorobanCircuitBreaker] RPC node recovered — circuit CLOSED");
-    }
-    this.state = "closed";
-    this.consecutiveFailures = 0;
-    this.openedAt = null;
-  }
-
-  private onFailure(): void {
-    this.consecutiveFailures++;
-    if (
-      this.state !== "open" &&
-      this.consecutiveFailures >= this.options.failureThreshold
-    ) {
-      this.state = "open";
-      this.openedAt = Date.now();
-      // Emit metric/alert — replace with your observability hook (e.g. Datadog, Prometheus)
-      console.error(
-        `[SorobanCircuitBreaker] Circuit OPENED after ${this.consecutiveFailures} consecutive failures. ` +
-        `Fast-failing all Soroban calls for ${this.options.recoveryTimeoutMs / 1000}s.`
-      );
-    }
+    return { fee: String(baseFee) };
   }
 }
-
-/** Shared circuit breaker instance for all Soroban RPC calls. */
-export const sorobanCircuitBreaker = new SorobanCircuitBreaker({
-  failureThreshold: parseInt(process.env.SOROBAN_CB_FAILURE_THRESHOLD ?? "5", 10),
-  recoveryTimeoutMs: parseInt(process.env.SOROBAN_CB_RECOVERY_MS ?? "30000", 10),
-});
-
-// ---------------------------------------------------------------------------
-// SorobanEscrowServiceImpl
-// ---------------------------------------------------------------------------
 
 /**
  * Concrete SorobanEscrowService implementation that validates the amount
- * before passing it to the Soroban contract, and wraps every RPC call with
- * the shared circuit breaker so a failing node fast-fails instead of
- * blocking the async queue.
- *
- * isConfigured() returns false when the circuit is open so the system can
- * degrade gracefully to off-chain-only mode.
+ * before passing it to the Soroban contract.
  */
 export class SorobanEscrowServiceImpl implements SorobanEscrowService {
-  /**
-   * Returns false when the Soroban RPC circuit is open, signalling callers
-   * to fall back to off-chain-only mode.
-   */
+  private readonly expectedContractVersion =
+    process.env.SOROBAN_CONTRACT_VERSION?.trim() || null;
+  private resolvedContractVersion: string | null = null;
+  private configured = true;
+
+  constructor(
+    private readonly resolveVersion: (() => Promise<string | null>) | null = null
+  ) {}
+
+  async verifyContractVersion(): Promise<boolean> {
+    // Check network configuration
+    const network = process.env.STELLAR_NETWORK || 'testnet';
+    const networkPassphrase = network === 'mainnet' ? Networks.PUBLIC : Networks.TESTNET;
+    const rpcUrl = process.env.SOROBAN_RPC_URL || 'https://soroban-testnet.stellar.org';
+    const rpcServer = new SorobanRpc.Server(rpcUrl, { allowHttp: rpcUrl.startsWith("http://") });
+    const networkInfo = await rpcServer.getNetwork();
+    if (networkInfo.passphrase !== networkPassphrase) {
+      throw new Error("SOROBAN_RPC_URL network passphrase does not match STELLAR_NETWORK configuration");
+    }
+
+    if (!this.expectedContractVersion) {
+      return true;
+    }
+
+    const fetchVersion =
+      this.resolveVersion ??
+      (async (): Promise<string | null> => {
+        return null;
+      });
+
+    let detectedVersion: string | null;
+    try {
+      detectedVersion = await fetchVersion();
+    } catch (error) {
+      this.configured = false;
+      throw Object.assign(
+        new Error(
+          `Soroban contract version check failed: ${(error as Error).message}`
+        ),
+        { statusCode: 503 }
+      );
+    }
+
+    this.resolvedContractVersion = detectedVersion;
+    if (!detectedVersion || detectedVersion !== this.expectedContractVersion) {
+      this.configured = false;
+      return false;
+    }
+
+    this.configured = true;
+    return true;
+  }
+
   isConfigured(): boolean {
-    return !sorobanCircuitBreaker.isOpen;
+    return this.configured;
+  }
+
+  getExpectedContractVersion(): string | null {
+    return this.expectedContractVersion;
+  }
+
+  getResolvedContractVersion(): string | null {
+    return this.resolvedContractVersion;
   }
 
   async createEscrow(input: {
@@ -169,15 +208,75 @@ export class SorobanEscrowServiceImpl implements SorobanEscrowService {
     mentorId: string;
     learnerId: string;
     amount: string;
-  }): Promise<{ txHash: string }> {
+  }): Promise<{ txHash: string; contractVersion: string | null }> {
     validateStellarAmount(input.amount);
 
-    return sorobanCircuitBreaker.call(async () => {
-      // TODO: invoke the Soroban contract here
-      // const result = await sorobanClient.invoke('create_escrow', { ... });
-      // return { txHash: result.hash };
+    if (this.expectedContractVersion && !this.configured) {
+      throw Object.assign(
+        new Error(
+          "Soroban escrow integration disabled due to contract version mismatch"
+        ),
+        { statusCode: 503 }
+      );
+    }
 
-      throw new Error("SorobanEscrowServiceImpl: contract invocation not yet wired up");
-    });
+    // TODO: invoke the Soroban contract here
+    // const result = await sorobanClient.invoke('create_escrow', { ... });
+    // return { txHash: result.hash, contractVersion: this.resolvedContractVersion };
+
+    throw new Error(
+      "SorobanEscrowServiceImpl: contract invocation not yet wired up"
+    );
+  }
+
+  /**
+   * Applies the on-chain escrow state to a booking record.
+   *
+   * Disputed escrows must set payment_status = 'disputed' — never 'failed'.
+   * A dispute means funds are held in escrow pending resolution, not that
+   * payment failed.
+   */
+  async applyEscrowStateToBookings(
+    state: EscrowOnChainState,
+    bookingId: string,
+    repo: BookingRepository
+  ): Promise<void> {
+    switch (state.status) {
+      case "disputed":
+        await repo.updatePaymentStatus(bookingId, "disputed");
+        break;
+      case "released":
+        await repo.updatePaymentStatus(bookingId, "paid");
+        break;
+      case "refunded":
+        await repo.updatePaymentStatus(bookingId, "refunded");
+        break;
+      // 'active' and 'resolved' require no payment status change
+    }
+  }
+
+  /**
+   * Syncs on-chain escrow state to bookings.
+   *
+   * Includes 'pending' bookings because escrow is created when payment is
+   * confirmed, which can happen before the mentor confirms the booking.
+   * Omitting 'pending' means timeout refunds on pending bookings are never
+   * reflected in the DB.
+   */
+  async syncPendingEscrows(
+    bookingRepo: BookingRepository,
+    escrowStateResolver: EscrowStateResolver
+  ): Promise<void> {
+    const bookings = await bookingRepo.findBookingsWithActiveEscrow([
+      "pending",
+      "confirmed",
+      "completed",
+      "cancelled",
+    ]);
+
+    for (const booking of bookings) {
+      const state = await escrowStateResolver.getEscrowState(booking.escrowId);
+      await this.applyEscrowStateToBookings(state, booking.id, bookingRepo);
+    }
   }
 }

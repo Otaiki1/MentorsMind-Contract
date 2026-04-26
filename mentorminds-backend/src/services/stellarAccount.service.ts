@@ -26,6 +26,49 @@ const NUM_TRUSTLINES = 2; // USDC + PYUSD
 const MINIMUM_STARTING_BALANCE = (1 + 0.5 * NUM_TRUSTLINES + 0.5).toFixed(1); // "2.5"
 const STARTING_BALANCE = process.env.STELLAR_STARTING_BALANCE ?? MINIMUM_STARTING_BALANCE;
 
+/**
+ * Wait for a Stellar account to become visible on Horizon after funding.
+ *
+ * Uses exponential backoff (1s → 2s → 4s … capped at 30s) for up to
+ * `maxAttempts` tries (~total budget ≈ 30 s with defaults).
+ *
+ * Distinguishes three cases:
+ *  - 404: account not yet visible — retry
+ *  - account found: resolve immediately
+ *  - any other error: rethrow (network failure, auth error, etc.)
+ */
+async function waitForAccount(
+  server: Server,
+  publicKey: string,
+  maxAttempts = 10,
+  baseDelayMs = 1000,
+  maxDelayMs = 30_000
+): Promise<void> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      await server.loadAccount(publicKey);
+      return; // account is live
+    } catch (err: any) {
+      if (err?.response?.status === 404) {
+        // Account not yet included in a ledger — wait and retry
+        lastError = err;
+        if (attempt < maxAttempts) {
+          const delay = Math.min(baseDelayMs * 2 ** (attempt - 1), maxDelayMs);
+          await new Promise((r) => setTimeout(r, delay));
+        }
+      } else {
+        // Non-404 (network failure, bad request, etc.) — don't retry
+        throw err;
+      }
+    }
+  }
+  throw new Error(
+    `Account ${publicKey} not visible on Horizon after ${maxAttempts} attempts. ` +
+    `The funding transaction may still be pending. Original error: ${(lastError as any)?.message}`
+  );
+}
+
 export class StellarAccountService {
   private server: Server;
   private adminKeypair: Keypair;
