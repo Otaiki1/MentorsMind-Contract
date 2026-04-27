@@ -73,6 +73,8 @@ class InMemoryEscrowRepo implements EscrowRepository {
 
 const stubSoroban: SorobanEscrowService = {
   createEscrow: jest.fn(),
+  openDispute: jest.fn().mockResolvedValue({ txHash: "dispute-tx-hash" }),
+  resolveDispute: jest.fn().mockResolvedValue({ txHash: "resolve-tx-hash" }),
 };
 
 describe("EscrowApiService.validateStateTransition", () => {
@@ -240,7 +242,7 @@ describe("EscrowApiService state-changing methods use validateStateTransition", 
     repo.seed([makeRecord("esc-1", "funded")]);
     const service = new EscrowApiService(repo, stubSoroban);
 
-    const result = await service.openDispute("esc-1");
+    const result = await service.openDispute("esc-1", "user-1", "Service not delivered");
     expect(result.status).toBe("disputed");
   });
 
@@ -249,7 +251,7 @@ describe("EscrowApiService state-changing methods use validateStateTransition", 
     repo.seed([makeRecord("esc-1", "pending")]);
     const service = new EscrowApiService(repo, stubSoroban);
 
-    await expect(service.openDispute("esc-1")).rejects.toThrow(
+    await expect(service.openDispute("esc-1", "user-1", "Service not delivered")).rejects.toThrow(
       "Cannot open dispute for escrow in pending status"
     );
   });
@@ -259,7 +261,7 @@ describe("EscrowApiService state-changing methods use validateStateTransition", 
     repo.seed([makeRecord("esc-1", "released")]);
     const service = new EscrowApiService(repo, stubSoroban);
 
-    await expect(service.openDispute("esc-1")).rejects.toThrow(
+    await expect(service.openDispute("esc-1", "user-1", "Service not delivered")).rejects.toThrow(
       "Cannot open dispute for escrow in released status"
     );
   });
@@ -269,7 +271,7 @@ describe("EscrowApiService state-changing methods use validateStateTransition", 
     repo.seed([makeRecord("esc-1", "disputed")]);
     const service = new EscrowApiService(repo, stubSoroban);
 
-    await expect(service.openDispute("esc-1")).rejects.toThrow(
+    await expect(service.openDispute("esc-1", "user-1", "Service not delivered")).rejects.toThrow(
       "Cannot open dispute for escrow in disputed status"
     );
   });

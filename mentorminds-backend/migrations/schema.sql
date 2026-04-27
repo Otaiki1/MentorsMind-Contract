@@ -32,6 +32,8 @@ CREATE TABLE IF NOT EXISTS escrows (
   dispute_reason    TEXT,
   resolved_at       TIMESTAMPTZ,
   released_at       TIMESTAMPTZ,
+  release_attempts  INTEGER       NOT NULL DEFAULT 0,
+  last_release_attempt_at TIMESTAMPTZ,
   created_at        TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
   updated_at        TIMESTAMPTZ   NOT NULL DEFAULT NOW()
 );
@@ -39,3 +41,6 @@ CREATE TABLE IF NOT EXISTS escrows (
 CREATE INDEX IF NOT EXISTS idx_escrows_learner_id ON escrows (learner_id);
 CREATE INDEX IF NOT EXISTS idx_escrows_mentor_id  ON escrows (mentor_id);
 CREATE INDEX IF NOT EXISTS idx_escrows_status     ON escrows (status);
+CREATE INDEX IF NOT EXISTS idx_escrows_auto_release 
+  ON escrows (status, created_at, release_attempts, last_release_attempt_at)
+  WHERE status IN ('funded', 'pending');
