@@ -34,3 +34,10 @@ export interface HorizonWebhookPayload {
   successful: boolean;
   result_code?: string;
 }
+
+export interface ExchangeRate {
+  baseAsset: string;
+  counterAsset: string;
+  rate: number;
+  lastUpdated: Date;
+}

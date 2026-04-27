@@ -1,6 +1,7 @@
 #![no_std]
 use soroban_sdk::{
-    contract, contractimpl, contracttype, symbol_short, token, Address, BytesN, Env, Symbol, Vec,
+    contract, contractimpl, contracttype, symbol_short, token, Address, BytesN, Env, IntoVal,
+    Symbol, Vec,
 };
 
 // ---------------------------------------------------------------------------
@@ -187,6 +188,51 @@ const ESCROW_TTL_BUMP: u32 = 1_000_000;
 const ESCROW_SYM: Symbol = symbol_short!("ESCROW");
 const GROUP_ESCROW_SYM: Symbol = symbol_short!("GR_ESC");
 const MESCROW_SYM: Symbol = symbol_short!("MESCROW");
+
+// ---------------------------------------------------------------------------
+// Yield feature storage keys
+// ---------------------------------------------------------------------------
+/// Address of the approved yield contract (e.g. lending protocol / LP).
+const YIELD_CONTRACT: Symbol = symbol_short!("YLD_CTR");
+/// Per-asset yield-disabled flag: (YLD_DIS, token_address) → bool
+const YIELD_DISABLED: Symbol = symbol_short!("YLD_DIS");
+/// Per-escrow yield tracking: (YLD_INF, escrow_id) → YieldInfo
+const YIELD_INFO_KEY: Symbol = symbol_short!("YLD_INF");
+/// Minimum seconds an escrow must be active before yield deployment is allowed.
+const YIELD_DEPLOY_DELAY: u64 = 24 * 60 * 60; // 24 h
+
+// ---------------------------------------------------------------------------
+// Yield types
+// ---------------------------------------------------------------------------
+
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct YieldInfo {
+    /// Amount of principal deposited into the yield contract.
+    pub deposited: i128,
+    /// Shares received from the yield contract representing the deposit.
+    pub yield_shares: i128,
+    /// Ledger timestamp when funds were deployed.
+    pub deployed_at: u64,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct YieldDeployedEventData {
+    pub escrow_id: u64,
+    pub amount: i128,
+    pub yield_shares: i128,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct YieldWithdrawnEventData {
+    pub escrow_id: u64,
+    pub principal: i128,
+    pub yield_earned: i128,
+    pub mentor_yield: i128,
+    pub learner_yield: i128,
+}
 
 #[contract]
 pub struct EscrowContract;
@@ -878,7 +924,66 @@ impl EscrowContract {
 
         let refund_amt = escrow.amount;
         let token_client = token::Client::new(&env, &escrow.token_address);
-        token_client.transfer(&env.current_contract_address(), &escrow.learner, &refund_amt);
+
+        // --- Withdraw from yield if deployed ---
+        let mut learner_yield: i128 = 0;
+        let yield_info_key = (YIELD_INFO_KEY, escrow_id);
+        if let Some(yield_info) = env
+            .storage()
+            .persistent()
+            .get::<_, YieldInfo>(&yield_info_key)
+        {
+            if let Some(yield_contract) = env
+                .storage()
+                .persistent()
+                .get::<_, Address>(&YIELD_CONTRACT)
+            {
+                let withdrawn: i128 = env.invoke_contract(
+                    &yield_contract,
+                    &soroban_sdk::Symbol::new(&env, "withdraw"),
+                    soroban_sdk::vec![
+                        &env,
+                        yield_info.yield_shares.into_val(&env),
+                        env.current_contract_address().into_val(&env),
+                    ],
+                );
+
+                let yield_earned = withdrawn
+                    .checked_sub(yield_info.deposited)
+                    .unwrap_or(0)
+                    .max(0);
+
+                // Learner gets their 50% yield share on refund.
+                learner_yield = yield_earned.checked_div(2).unwrap_or(0);
+                let mentor_yield = yield_earned.checked_sub(learner_yield).unwrap_or(0);
+
+                // Return mentor's yield share to mentor.
+                if mentor_yield > 0 {
+                    token_client.transfer(
+                        &env.current_contract_address(),
+                        &escrow.mentor,
+                        &mentor_yield,
+                    );
+                }
+
+                env.storage().persistent().remove(&yield_info_key);
+
+                env.events().publish(
+                    (symbol_short!("yld_wth"), escrow_id),
+                    YieldWithdrawnEventData {
+                        escrow_id,
+                        principal: yield_info.deposited,
+                        yield_earned,
+                        mentor_yield,
+                        learner_yield,
+                    },
+                );
+            }
+        }
+
+        // Learner receives principal + their yield share.
+        let total_refund = refund_amt.checked_add(learner_yield).expect("Overflow");
+        token_client.transfer(&env.current_contract_address(), &escrow.learner, &total_refund);
 
         escrow.status = EscrowStatus::Refunded;
         escrow.amount = 0;
@@ -2495,15 +2600,208 @@ mod test {
     }
 
     // -----------------------------------------------------------------------
+    // Yield feature
+    // -----------------------------------------------------------------------
+
+    /// Admin: set the approved yield contract address.
+    pub fn set_yield_contract(env: Env, yield_contract: Address) {
+        let admin: Address = env.storage().persistent().get(&ADMIN).expect("Not initialized");
+        env.storage().persistent().extend_ttl(&ADMIN, ESCROW_TTL_THRESHOLD, ESCROW_TTL_BUMP);
+        admin.require_auth();
+        env.storage().persistent().set(&YIELD_CONTRACT, &yield_contract);
+        env.storage().persistent().extend_ttl(&YIELD_CONTRACT, ESCROW_TTL_THRESHOLD, ESCROW_TTL_BUMP);
+    }
+
+    /// Admin: disable or re-enable yield for a specific asset.
+    pub fn set_yield_enabled(env: Env, token_address: Address, enabled: bool) {
+        let admin: Address = env.storage().persistent().get(&ADMIN).expect("Not initialized");
+        env.storage().persistent().extend_ttl(&ADMIN, ESCROW_TTL_THRESHOLD, ESCROW_TTL_BUMP);
+        admin.require_auth();
+        // Store `disabled` flag (true = disabled) so default (missing key) means enabled.
+        let key = (YIELD_DISABLED, token_address);
+        env.storage().persistent().set(&key, &!enabled);
+        env.storage().persistent().extend_ttl(&key, ESCROW_TTL_THRESHOLD, ESCROW_TTL_BUMP);
+    }
+
+    /// Permissionless: deploy escrow funds into the yield contract.
+    ///
+    /// Callable by anyone after the escrow has been active for at least 24 h.
+    /// Transfers the full escrow principal to the yield contract and records
+    /// the shares returned. Panics if:
+    /// - Escrow not found or not `Active`.
+    /// - Yield contract not configured.
+    /// - Yield is disabled for this asset.
+    /// - 24 h has not elapsed since escrow creation.
+    /// - Funds already deployed.
+    pub fn deploy_to_yield(env: Env, escrow_id: u64) {
+        let key = (ESCROW_SYM, escrow_id);
+        env.storage().persistent().extend_ttl(&key, ESCROW_TTL_THRESHOLD, ESCROW_TTL_BUMP);
+        let escrow: Escrow = env.storage().persistent().get(&key).expect("Escrow not found");
+
+        if escrow.status != EscrowStatus::Active {
+            panic!("Escrow not active");
+        }
+
+        // Enforce 24-hour delay.
+        let now = env.ledger().timestamp();
+        let deploy_after = escrow.created_at
+            .checked_add(YIELD_DEPLOY_DELAY)
+            .expect("Timestamp overflow");
+        if now < deploy_after {
+            panic!("Yield deploy delay not elapsed");
+        }
+
+        // Check yield not already deployed.
+        let yield_info_key = (YIELD_INFO_KEY, escrow_id);
+        if env.storage().persistent().has(&yield_info_key) {
+            panic!("Yield already deployed");
+        }
+
+        // Check yield contract configured.
+        let yield_contract: Address = env
+            .storage()
+            .persistent()
+            .get(&YIELD_CONTRACT)
+            .expect("Yield contract not configured");
+        env.storage().persistent().extend_ttl(&YIELD_CONTRACT, ESCROW_TTL_THRESHOLD, ESCROW_TTL_BUMP);
+
+        // Check yield not disabled for this asset.
+        let disabled_key = (YIELD_DISABLED, escrow.token_address.clone());
+        let disabled: bool = env.storage().persistent().get(&disabled_key).unwrap_or(false);
+        if disabled {
+            panic!("Yield disabled for this asset");
+        }
+
+        let amount = escrow.amount;
+        if amount <= 0 {
+            panic!("No funds to deploy");
+        }
+
+        // Approve yield contract to pull tokens, then call deposit.
+        let token_client = token::Client::new(&env, &escrow.token_address);
+        token_client.approve(
+            &env.current_contract_address(),
+            &yield_contract,
+            &amount,
+            &(env.ledger().sequence() + 100),
+        );
+
+        // Call yield contract: deposit(token, amount) → returns shares (i128).
+        let shares: i128 = env.invoke_contract(
+            &yield_contract,
+            &soroban_sdk::Symbol::new(&env, "deposit"),
+            soroban_sdk::vec![
+                &env,
+                escrow.token_address.clone().into_val(&env),
+                amount.into_val(&env),
+            ],
+        );
+
+        let yield_info = YieldInfo {
+            deposited: amount,
+            yield_shares: shares,
+            deployed_at: now,
+        };
+        env.storage().persistent().set(&yield_info_key, &yield_info);
+        env.storage().persistent().extend_ttl(&yield_info_key, ESCROW_TTL_THRESHOLD, ESCROW_TTL_BUMP);
+
+        env.events().publish(
+            (symbol_short!("yld_dep"), escrow_id),
+            YieldDeployedEventData { escrow_id, amount, yield_shares: shares },
+        );
+    }
+
+    /// Query accrued yield for an escrow (returns 0 if not deployed).
+    ///
+    /// Calls `get_value(shares)` on the yield contract and returns
+    /// `current_value - deposited`.
+    pub fn get_accrued_yield(env: Env, escrow_id: u64) -> i128 {
+        let yield_info_key = (YIELD_INFO_KEY, escrow_id);
+        let yield_info: YieldInfo = match env.storage().persistent().get(&yield_info_key) {
+            Some(y) => y,
+            None => return 0,
+        };
+
+        let yield_contract: Address = match env.storage().persistent().get(&YIELD_CONTRACT) {
+            Some(a) => a,
+            None => return 0,
+        };
+
+        let current_value: i128 = env.invoke_contract(
+            &yield_contract,
+            &soroban_sdk::Symbol::new(&env, "get_value"),
+            soroban_sdk::vec![&env, yield_info.yield_shares.into_val(&env)],
+        );
+
+        current_value.checked_sub(yield_info.deposited).unwrap_or(0)
+    }
+
+    // -----------------------------------------------------------------------
     // Internal
     // -----------------------------------------------------------------------
 
     fn _do_release(env: &Env, escrow: &mut Escrow, key: &(Symbol, u64), gross: i128) {
+        // --- Withdraw from yield if deployed ---
+        let mut total_gross = gross;
+        let mut mentor_yield: i128 = 0;
+        let mut learner_yield: i128 = 0;
+
+        let yield_info_key = (YIELD_INFO_KEY, escrow.id);
+        if let Some(yield_info) = env
+            .storage()
+            .persistent()
+            .get::<_, YieldInfo>(&yield_info_key)
+        {
+            if let Some(yield_contract) = env
+                .storage()
+                .persistent()
+                .get::<_, Address>(&YIELD_CONTRACT)
+            {
+                // Withdraw principal + yield from yield contract.
+                let withdrawn: i128 = env.invoke_contract(
+                    &yield_contract,
+                    &soroban_sdk::Symbol::new(env, "withdraw"),
+                    soroban_sdk::vec![
+                        env,
+                        yield_info.yield_shares.into_val(env),
+                        env.current_contract_address().into_val(env),
+                    ],
+                );
+
+                let yield_earned = withdrawn
+                    .checked_sub(yield_info.deposited)
+                    .unwrap_or(0)
+                    .max(0);
+
+                // Split yield 50/50.
+                mentor_yield = yield_earned.checked_div(2).unwrap_or(0);
+                learner_yield = yield_earned.checked_sub(mentor_yield).unwrap_or(0);
+
+                // Principal is already accounted in `gross`; add yield on top.
+                total_gross = gross
+                    .checked_add(yield_earned)
+                    .expect("Overflow");
+
+                env.storage().persistent().remove(&yield_info_key);
+
+                env.events().publish(
+                    (symbol_short!("yld_wth"), escrow.id),
+                    YieldWithdrawnEventData {
+                        escrow_id: escrow.id,
+                        principal: yield_info.deposited,
+                        yield_earned,
+                        mentor_yield,
+                        learner_yield,
+                    },
+                );
+            }
+        }
         let fee_bps: u32 = env.storage().persistent().get(&FEE_BPS).unwrap_or(0u32);
         env.storage()
             .persistent()
             .extend_ttl(&FEE_BPS, ESCROW_TTL_THRESHOLD, ESCROW_TTL_BUMP);
 
+        // Fee is applied only on the principal (gross), not on yield.
         let platform_fee: i128 = gross
             .checked_mul(fee_bps as i128)
             .expect("Overflow")
@@ -2526,7 +2824,14 @@ mod test {
             token_client.transfer(&env.current_contract_address(), &treasury, &platform_fee);
         }
 
-        token_client.transfer(&env.current_contract_address(), &escrow.mentor, &net_amount);
+        // Mentor receives net principal + their yield share.
+        let mentor_total = net_amount.checked_add(mentor_yield).expect("Overflow");
+        token_client.transfer(&env.current_contract_address(), &escrow.mentor, &mentor_total);
+
+        // Learner receives their yield share (if any).
+        if learner_yield > 0 {
+            token_client.transfer(&env.current_contract_address(), &escrow.learner, &learner_yield);
+        }
 
         escrow.status = EscrowStatus::Released;
         escrow.platform_fee = escrow
@@ -2549,7 +2854,7 @@ mod test {
             ),
             EscrowReleasedEventData {
                 mentor: escrow.mentor.clone(),
-                amount: gross,
+                amount: total_gross,
                 net_amount,
                 platform_fee,
                 token_address: escrow.token_address.clone(),
@@ -2841,5 +3146,297 @@ mod group_tests {
             client.get_group_escrow(&gid).status,
             GroupEscrowStatus::Cancelled
         );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Unit tests — yield feature
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod yield_tests {
+    extern crate std;
+    use super::*;
+    use soroban_sdk::{
+        contract, contractimpl,
+        testutils::{Address as _, Ledger},
+        token::{Client as TokenClient, StellarAssetClient},
+        Address, Env, Vec,
+    };
+
+    // -----------------------------------------------------------------------
+    // Minimal mock yield contract
+    // -----------------------------------------------------------------------
+    // Simulates a lending protocol: deposit returns shares 1:1, get_value
+    // returns shares + 10% bonus, withdraw returns the full value.
+
+    #[contract]
+    pub struct MockYield;
+
+    const MOCK_BALANCE: soroban_sdk::Symbol = symbol_short!("M_BAL");
+
+    #[contractimpl]
+    impl MockYield {
+        /// deposit(token, amount) → shares (1:1 for simplicity)
+        pub fn deposit(env: Env, _token: Address, amount: i128) -> i128 {
+            let current: i128 = env.storage().instance().get(&MOCK_BALANCE).unwrap_or(0);
+            env.storage().instance().set(&MOCK_BALANCE, &(current + amount));
+            amount // shares == amount deposited
+        }
+
+        /// get_value(shares) → current value (shares + 10%)
+        pub fn get_value(_env: Env, shares: i128) -> i128 {
+            shares + shares / 10
+        }
+
+        /// withdraw(shares, recipient) → amount transferred back
+        /// In tests the escrow contract calls this; we just return the value.
+        /// The actual token transfer is handled by the test setup (we mint
+        /// extra tokens to the mock contract to simulate yield).
+        pub fn withdraw(env: Env, shares: i128, _recipient: Address) -> i128 {
+            let value = shares + shares / 10;
+            let current: i128 = env.storage().instance().get(&MOCK_BALANCE).unwrap_or(0);
+            env.storage()
+                .instance()
+                .set(&MOCK_BALANCE, &(current - shares).max(0));
+            value
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Test helpers
+    // -----------------------------------------------------------------------
+
+    fn create_token<'a>(env: &'a Env, admin: &Address) -> (Address, StellarAssetClient<'a>) {
+        let addr = env.register_stellar_asset_contract_v2(admin.clone()).address();
+        (addr.clone(), StellarAssetClient::new(env, &addr))
+    }
+
+    struct YieldFixture {
+        env: Env,
+        contract_id: Address,
+        yield_id: Address,
+        admin: Address,
+        mentor: Address,
+        learner: Address,
+        treasury: Address,
+        token_address: Address,
+    }
+
+    impl YieldFixture {
+        fn setup() -> Self {
+            let env = Env::default();
+            env.mock_all_auths();
+            env.ledger().with_mut(|li| {
+                li.timestamp = 14_400; // start at non-zero time
+            });
+
+            let admin = Address::generate(&env);
+            let mentor = Address::generate(&env);
+            let learner = Address::generate(&env);
+            let treasury = Address::generate(&env);
+
+            let (token_address, token_sac) = create_token(&env, &admin);
+            token_sac.mint(&learner, &10_000);
+
+            let contract_id = env.register_contract(None, EscrowContract);
+            let yield_id = env.register_contract(None, MockYield);
+
+            let client = EscrowContractClient::new(&env, &contract_id);
+            let mut approved = Vec::new(&env);
+            approved.push_back(token_address.clone());
+            client.initialize(&admin, &treasury, &0u32, &approved, &0u64);
+            client.set_yield_contract(&yield_id);
+
+            YieldFixture {
+                env,
+                contract_id,
+                yield_id,
+                admin,
+                mentor,
+                learner,
+                treasury,
+                token_address,
+            }
+        }
+
+        fn client(&self) -> EscrowContractClient {
+            EscrowContractClient::new(&self.env, &self.contract_id)
+        }
+
+        fn token(&self) -> TokenClient {
+            TokenClient::new(&self.env, &self.token_address)
+        }
+
+        fn sac(&self) -> StellarAssetClient {
+            StellarAssetClient::new(&self.env, &self.token_address)
+        }
+
+        /// Create a standard escrow and return its id.
+        fn create_escrow(&self) -> u64 {
+            self.client().create_escrow(
+                &self.mentor,
+                &self.learner,
+                &1_000,
+                &symbol_short!("S1"),
+                &self.token_address,
+                &(self.env.ledger().timestamp() + 3_600),
+            )
+        }
+
+        /// Advance ledger by `secs` seconds.
+        fn advance(&self, secs: u64) {
+            self.env.ledger().with_mut(|li| {
+                li.timestamp += secs;
+            });
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_deploy_to_yield_succeeds_after_24h() {
+        let f = YieldFixture::setup();
+        let id = f.create_escrow();
+
+        // Advance past 24-hour deploy delay.
+        f.advance(YIELD_DEPLOY_DELAY + 1);
+
+        // Mint extra tokens to mock yield contract to simulate it holding funds.
+        f.sac().mint(&f.yield_id, &1_100);
+
+        f.client().deploy_to_yield(&id);
+
+        // Yield info should now be stored.
+        let accrued = f.client().get_accrued_yield(&id);
+        // get_value(1000) = 1000 + 100 = 1100; accrued = 1100 - 1000 = 100
+        assert_eq!(accrued, 100);
+    }
+
+    #[test]
+    fn test_deploy_to_yield_rejected_before_24h() {
+        let f = YieldFixture::setup();
+        let id = f.create_escrow();
+
+        // Only advance 12 hours — not enough.
+        f.advance(12 * 60 * 60);
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            f.client().deploy_to_yield(&id);
+        }));
+        assert!(result.is_err(), "Should panic before 24h delay");
+    }
+
+    #[test]
+    fn test_deploy_to_yield_rejected_twice() {
+        let f = YieldFixture::setup();
+        let id = f.create_escrow();
+        f.advance(YIELD_DEPLOY_DELAY + 1);
+        f.sac().mint(&f.yield_id, &1_100);
+        f.client().deploy_to_yield(&id);
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            f.client().deploy_to_yield(&id);
+        }));
+        assert!(result.is_err(), "Double deploy should panic");
+    }
+
+    #[test]
+    fn test_deploy_to_yield_rejected_when_disabled_for_asset() {
+        let f = YieldFixture::setup();
+        f.client().set_yield_enabled(&f.token_address, &false);
+        let id = f.create_escrow();
+        f.advance(YIELD_DEPLOY_DELAY + 1);
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            f.client().deploy_to_yield(&id);
+        }));
+        assert!(result.is_err(), "Should panic when yield disabled for asset");
+    }
+
+    #[test]
+    fn test_get_accrued_yield_zero_when_not_deployed() {
+        let f = YieldFixture::setup();
+        let id = f.create_escrow();
+        assert_eq!(f.client().get_accrued_yield(&id), 0);
+    }
+
+    #[test]
+    fn test_release_with_yield_splits_50_50() {
+        let f = YieldFixture::setup();
+        let id = f.create_escrow();
+        f.advance(YIELD_DEPLOY_DELAY + 1);
+
+        // Mint yield tokens to mock contract (principal 1000 + 100 yield = 1100).
+        f.sac().mint(&f.yield_id, &1_100);
+        f.client().deploy_to_yield(&id);
+
+        let mentor_before = f.token().balance(&f.mentor);
+        let learner_before = f.token().balance(&f.learner);
+
+        f.client().release_funds(&f.learner, &id);
+
+        // yield_earned = 100; mentor_yield = 50, learner_yield = 50
+        // fee = 0 (setup with 0 bps); mentor gets 1000 + 50 = 1050
+        // learner gets 50
+        assert_eq!(f.token().balance(&f.mentor), mentor_before + 1_050);
+        assert_eq!(f.token().balance(&f.learner), learner_before + 50);
+        assert_eq!(f.token().balance(&f.contract_id), 0);
+    }
+
+    #[test]
+    fn test_refund_with_yield_learner_gets_principal_plus_yield_share() {
+        let f = YieldFixture::setup();
+        let id = f.create_escrow();
+        f.advance(YIELD_DEPLOY_DELAY + 1);
+
+        // Mint yield tokens to mock contract.
+        f.sac().mint(&f.yield_id, &1_100);
+        f.client().deploy_to_yield(&id);
+
+        let learner_before = f.token().balance(&f.learner);
+        let mentor_before = f.token().balance(&f.mentor);
+
+        f.client().refund(&id);
+
+        // yield_earned = 100; learner_yield = 50, mentor_yield = 50
+        // learner gets 1000 (principal) + 50 (yield) = 1050
+        // mentor gets 50 (their yield share)
+        assert_eq!(f.token().balance(&f.learner), learner_before + 1_050);
+        assert_eq!(f.token().balance(&f.mentor), mentor_before + 50);
+        assert_eq!(f.token().balance(&f.contract_id), 0);
+    }
+
+    #[test]
+    fn test_release_without_yield_unaffected() {
+        let f = YieldFixture::setup();
+        let id = f.create_escrow();
+        // Do NOT deploy to yield.
+
+        let mentor_before = f.token().balance(&f.mentor);
+        let learner_before = f.token().balance(&f.learner);
+
+        f.client().release_funds(&f.learner, &id);
+
+        // No yield: mentor gets full 1000, learner gets nothing extra.
+        assert_eq!(f.token().balance(&f.mentor), mentor_before + 1_000);
+        assert_eq!(f.token().balance(&f.learner), learner_before);
+    }
+
+    #[test]
+    fn test_set_yield_enabled_re_enables_after_disable() {
+        let f = YieldFixture::setup();
+        f.client().set_yield_enabled(&f.token_address, &false);
+        f.client().set_yield_enabled(&f.token_address, &true);
+
+        let id = f.create_escrow();
+        f.advance(YIELD_DEPLOY_DELAY + 1);
+        f.sac().mint(&f.yield_id, &1_100);
+
+        // Should succeed now that yield is re-enabled.
+        f.client().deploy_to_yield(&id);
+        assert_eq!(f.client().get_accrued_yield(&id), 100);
     }
 }
