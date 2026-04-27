@@ -22,7 +22,7 @@ describe("EscrowDisputeService", () => {
 
     const result = await service.resolveDispute({
       escrowId: "escrow-1",
-      splitPercentage: 60,
+      mentorPercentage: 60,
       adminUserId: "admin-user-42",
     });
 
@@ -31,7 +31,7 @@ describe("EscrowDisputeService", () => {
     );
     expect(sorobanDisputeService.resolveDispute).toHaveBeenCalledWith({
       escrowId: "escrow-1",
-      splitPercentage: 60,
+      mentorPercentage: 60,
       resolvedBy: "GADMINPUBLICKEY123456789",
     });
     expect(result.txHash).toBe("tx_resolve");

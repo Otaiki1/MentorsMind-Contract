@@ -76,8 +76,8 @@ export async function resolveDispute(disputeId: string, action: DisputeAction): 
   if (action === 'full_refund' || action === 'partial_refund') {
     escrowTxHash = await escrowService.refund(booking.escrowId);
   } else {
-    // release — funds go to mentor
-    escrowTxHash = await escrowService.resolveDispute(booking.escrowId, true);
+    // release — funds go to mentor (100% to mentor)
+    escrowTxHash = await escrowService.resolveDispute(booking.escrowId, 100);
   }
 
   // Escrow succeeded — now update DB state

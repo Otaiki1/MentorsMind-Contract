@@ -1,7 +1,8 @@
 export interface SorobanDisputeService {
   resolveDispute(input: {
     escrowId: string;
-    splitPercentage: number;
+    /** Percentage to mentor as integer 0-100 (e.g., 75 for 75%) */
+    mentorPercentage: number;
     resolvedBy: string;
   }): Promise<{ txHash: string }>;
 }
@@ -18,16 +19,23 @@ export class EscrowDisputeService {
 
   async resolveDispute(input: {
     escrowId: string;
-    splitPercentage: number;
+    /** Percentage to mentor as integer 0-100 (e.g., 75 for 75%) */
+    mentorPercentage: number;
     adminUserId: string;
   }): Promise<{ txHash: string }> {
+    // Validate and normalize percentage to integer
+    const mentorPct = Math.round(input.mentorPercentage);
+    if (mentorPct < 0 || mentorPct > 100) {
+      throw new Error(`mentorPercentage must be between 0 and 100, got: ${input.mentorPercentage}`);
+    }
+
     const adminPublicKey = await this.adminIdentityResolver.toStellarPublicKey(
       input.adminUserId
     );
 
     return this.sorobanDisputeService.resolveDispute({
       escrowId: input.escrowId,
-      splitPercentage: input.splitPercentage,
+      mentorPercentage: mentorPct,
       resolvedBy: adminPublicKey,
     });
   }
