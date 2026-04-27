@@ -1,6 +1,6 @@
 #![no_std]
 
-use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, Env, Symbol, Vec};
+use soroban_sdk::{contract, contractimpl, contracttype, Address, Env, Symbol, Vec};
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -35,10 +35,9 @@ impl InterfaceRegistryContract {
             panic!("Already initialized");
         }
         env.storage().persistent().set(&DataKey::Admin, &admin);
-        let empty_vec: Vec<Symbol> = Vec::new(&env);
         env.storage()
             .persistent()
-            .set(&DataKey::InterfaceIds, &empty_vec);
+            .set(&DataKey::InterfaceIds, &Vec::<Symbol>::new(&env));
     }
 
     pub fn register_interface(env: Env, contract: Address, interface_id: Symbol, version: u32) {
@@ -74,12 +73,12 @@ impl InterfaceRegistryContract {
 
         if is_new {
             env.events().publish(
-                (symbol_short!("iface_reg"), interface_id),
+                (Symbol::new(&env, "interface_registered"), interface_id),
                 (contract, version),
             );
         } else {
             env.events().publish(
-                (symbol_short!("iface_upd"), interface_id),
+                (Symbol::new(&env, "interface_updated"), interface_id),
                 (contract, version),
             );
         }
@@ -135,7 +134,7 @@ impl InterfaceRegistryContract {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use soroban_sdk::testutils::{Address as _, Ledger};
+    use soroban_sdk::testutils::Address as _;
     use soroban_sdk::{Env, Symbol};
 
     fn setup(env: &Env) -> (InterfaceRegistryContractClient, Address, Address) {
@@ -196,8 +195,10 @@ mod tests {
         let list = registry.list_interfaces();
         assert_eq!(list.len(), 2);
 
-        let interface_names: Vec<Symbol> =
-            list.iter().map(|item| item.interface_id.clone()).collect();
+        let mut interface_names: Vec<Symbol> = Vec::new(&env);
+        for item in list.iter() {
+            interface_names.push_back(item.interface_id.clone());
+        }
 
         assert!(interface_names.contains(&Symbol::new(&env, "escrow_v1")));
         assert!(interface_names.contains(&Symbol::new(&env, "oracle_v1")));

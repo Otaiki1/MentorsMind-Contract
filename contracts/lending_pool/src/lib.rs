@@ -1,8 +1,8 @@
 #![no_std]
 
+use shared::ReentrancyGuard;
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, symbol_short, token, Address, Env,
-    Symbol,
+    contract, contracterror, contractimpl, contracttype, symbol_short, token, Address, Env, Symbol,
 };
 
 // ---------------------------------------------------------------------------
@@ -96,12 +96,18 @@ impl LendingPool {
         }
 
         env.storage().instance().set(&DataKey::Admin, &admin);
-        env.storage().instance().set(&DataKey::UsdcToken, &usdc_token);
+        env.storage()
+            .instance()
+            .set(&DataKey::UsdcToken, &usdc_token);
         env.storage()
             .instance()
             .set(&DataKey::CreditScoreContract, &credit_score_contract);
-        env.storage().instance().set(&DataKey::TotalLiquidity, &0i128);
-        env.storage().instance().set(&DataKey::TotalLpTokens, &0i128);
+        env.storage()
+            .instance()
+            .set(&DataKey::TotalLiquidity, &0i128);
+        env.storage()
+            .instance()
+            .set(&DataKey::TotalLpTokens, &0i128);
 
         Ok(())
     }
@@ -118,11 +124,7 @@ impl LendingPool {
 
         lender.require_auth();
 
-        let usdc_token: Address = env
-            .storage()
-            .instance()
-            .get(&DataKey::UsdcToken)
-            .unwrap();
+        let usdc_token: Address = env.storage().instance().get(&DataKey::UsdcToken).unwrap();
         let token_client = token::Client::new(&env, &usdc_token);
 
         // Transfer USDC from lender to contract
@@ -193,11 +195,7 @@ impl LendingPool {
         // Calculate USDC to return (1:1 ratio + accrued interest)
         let usdc_amount = lp_amount;
 
-        let usdc_token: Address = env
-            .storage()
-            .instance()
-            .get(&DataKey::UsdcToken)
-            .unwrap();
+        let usdc_token: Address = env.storage().instance().get(&DataKey::UsdcToken).unwrap();
         let token_client = token::Client::new(&env, &usdc_token);
 
         // Transfer USDC back to lender
@@ -235,8 +233,10 @@ impl LendingPool {
                 .set(&DataKey::LenderBalance(lender.clone()), &new_balance);
         }
 
-        env.events()
-            .publish((symbol_short!("withdrawn"),), (lender, lp_amount, usdc_amount));
+        env.events().publish(
+            (symbol_short!("withdrawn"),),
+            (lender, lp_amount, usdc_amount),
+        );
 
         Ok(usdc_amount)
     }
@@ -248,6 +248,7 @@ impl LendingPool {
         amount: i128,
         session_id: Symbol,
     ) -> Result<(), Error> {
+        let _guard = ReentrancyGuard::enter(&env, Symbol::new(&env, "borrow"));
         if !env.storage().instance().has(&DataKey::Admin) {
             return Err(Error::NotInitialized);
         }
@@ -293,11 +294,7 @@ impl LendingPool {
             .set(&DataKey::Loan(borrower.clone()), &loan);
 
         // Transfer USDC to borrower
-        let usdc_token: Address = env
-            .storage()
-            .instance()
-            .get(&DataKey::UsdcToken)
-            .unwrap();
+        let usdc_token: Address = env.storage().instance().get(&DataKey::UsdcToken).unwrap();
         let token_client = token::Client::new(&env, &usdc_token);
         token_client.transfer(&env.current_contract_address(), &borrower, &amount);
 
@@ -307,14 +304,17 @@ impl LendingPool {
             .instance()
             .set(&DataKey::TotalLiquidity, &new_liquidity);
 
-        env.events()
-            .publish((symbol_short!("borrowed"),), (borrower, amount, fee, session_id));
+        env.events().publish(
+            (symbol_short!("borrowed"),),
+            (borrower, amount, fee, session_id),
+        );
 
         Ok(())
     }
 
     /// Repay loan with principal + fee
     pub fn repay(env: Env, borrower: Address, amount: i128) -> Result<(), Error> {
+        let _guard = ReentrancyGuard::enter(&env, Symbol::new(&env, "repay"));
         if !env.storage().instance().has(&DataKey::Admin) {
             return Err(Error::NotInitialized);
         }
@@ -341,11 +341,7 @@ impl LendingPool {
         }
 
         // Transfer USDC from borrower to contract
-        let usdc_token: Address = env
-            .storage()
-            .instance()
-            .get(&DataKey::UsdcToken)
-            .unwrap();
+        let usdc_token: Address = env.storage().instance().get(&DataKey::UsdcToken).unwrap();
         let token_client = token::Client::new(&env, &usdc_token);
         token_client.transfer(&borrower, &env.current_contract_address(), &total_owed);
 
@@ -367,8 +363,10 @@ impl LendingPool {
             .instance()
             .set(&DataKey::TotalLiquidity, &total_liquidity);
 
-        env.events()
-            .publish((symbol_short!("repaid"),), (borrower, loan.amount, loan.fee));
+        env.events().publish(
+            (symbol_short!("repaid"),),
+            (borrower, loan.amount, loan.fee),
+        );
 
         Ok(())
     }

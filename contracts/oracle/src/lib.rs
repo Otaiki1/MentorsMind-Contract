@@ -1,8 +1,11 @@
 #![no_std]
-use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, Env, Symbol, Vec};
+use soroban_sdk::{
+    contract, contractclient, contractimpl, contracttype, symbol_short, Address, Env, Symbol, Vec,
+};
 
 const ADMIN: Symbol = symbol_short!("ADMIN");
 const FEEDERS: Symbol = symbol_short!("FEEDERS");
+const RBAC: Symbol = symbol_short!("RBAC");
 const MIN_FEEDERS: u32 = 3;
 const MAX_POINTS: u32 = 5;
 const STALE_SECS: u64 = 300;
@@ -12,6 +15,11 @@ const STALE_SECS: u64 = 300;
 pub struct PricePoint {
     pub price: i128,
     pub timestamp: u64,
+}
+
+#[contractclient(name = "RbacContractClient")]
+pub trait RbacContractTrait {
+    fn has_role(env: Env, role: Symbol, account: Address) -> bool;
 }
 
 #[contract]
@@ -29,8 +37,13 @@ impl OracleContract {
             .set(&FEEDERS, &Vec::<Address>::new(&env));
     }
 
-    pub fn add_feeder(env: Env, feeder: Address) {
-        Self::admin(&env).require_auth();
+    pub fn set_rbac_contract(env: Env, admin: Address, rbac: Address) {
+        Self::require_admin_or_role(&env, &admin, Symbol::new(&env, "ORACLE_ADMIN"));
+        env.storage().persistent().set(&RBAC, &rbac);
+    }
+
+    pub fn add_feeder(env: Env, admin: Address, feeder: Address) {
+        Self::require_admin_or_role(&env, &admin, Symbol::new(&env, "ORACLE_ADMIN"));
         let mut feeders: Vec<Address> = env
             .storage()
             .persistent()
@@ -42,8 +55,8 @@ impl OracleContract {
         env.storage().persistent().set(&FEEDERS, &feeders);
     }
 
-    pub fn remove_feeder(env: Env, feeder: Address) {
-        Self::admin(&env).require_auth();
+    pub fn remove_feeder(env: Env, admin: Address, feeder: Address) {
+        Self::require_admin_or_role(&env, &admin, Symbol::new(&env, "ORACLE_ADMIN"));
         let feeders: Vec<Address> = env
             .storage()
             .persistent()
@@ -60,7 +73,9 @@ impl OracleContract {
 
     pub fn submit_price(env: Env, feeder: Address, asset: Symbol, price: i128, timestamp: u64) {
         feeder.require_auth();
-        if !Self::is_feeder(&env, &feeder) {
+        if !Self::is_feeder(&env, &feeder)
+            && !Self::has_rbac_role(&env, Symbol::new(&env, "ORACLE_FEEDER"), feeder.clone())
+        {
             panic!("unauthorized feeder");
         }
         let key = (symbol_short!("PRICES"), asset.clone());
@@ -147,5 +162,20 @@ impl OracleContract {
             .persistent()
             .get(&ADMIN)
             .expect("not initialized")
+    }
+
+    fn require_admin_or_role(env: &Env, caller: &Address, role: Symbol) {
+        caller.require_auth();
+        if *caller == Self::admin(env) || Self::has_rbac_role(env, role, caller.clone()) {
+            return;
+        }
+        panic!("unauthorized");
+    }
+
+    fn has_rbac_role(env: &Env, role: Symbol, account: Address) -> bool {
+        match env.storage().persistent().get::<_, Address>(&RBAC) {
+            Some(rbac) => RbacContractClient::new(env, &rbac).has_role(&role, &account),
+            None => false,
+        }
     }
 }

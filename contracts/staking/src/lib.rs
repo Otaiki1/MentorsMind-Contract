@@ -1,5 +1,6 @@
 #![no_std]
 
+use shared::ReentrancyGuard;
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, token, Address, Env, Symbol,
 };
@@ -122,6 +123,7 @@ impl StakingContract {
         amount: i128,
         lock_period_days: u32,
     ) -> Result<(), Error> {
+        let _guard = ReentrancyGuard::enter(&env, Symbol::new(&env, "stake"));
         if !env.storage().instance().has(&DataKey::Admin) {
             return Err(Error::NotInitialized);
         }
@@ -178,8 +180,14 @@ impl StakingContract {
             env.storage().persistent().set(&DataKey::Stakers, &stakers);
         }
 
-        let total_staked: i128 = env.storage().persistent().get(&DataKey::TotalStaked).unwrap_or(0);
-        env.storage().persistent().set(&DataKey::TotalStaked, &(total_staked + amount));
+        let total_staked: i128 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::TotalStaked)
+            .unwrap_or(0);
+        env.storage()
+            .persistent()
+            .set(&DataKey::TotalStaked, &(total_staked + amount));
 
         env.events().publish(
             (
@@ -205,6 +213,7 @@ impl StakingContract {
     ///
     /// Auth: `mentor` must authorize this call.
     pub fn unstake(env: Env, mentor: Address) -> Result<(), Error> {
+        let _guard = ReentrancyGuard::enter(&env, Symbol::new(&env, "unstake"));
         if !env.storage().instance().has(&DataKey::Admin) {
             return Err(Error::NotInitialized);
         }
@@ -246,8 +255,14 @@ impl StakingContract {
             env.storage().persistent().set(&DataKey::Stakers, &stakers);
         }
 
-        let total_staked: i128 = env.storage().persistent().get(&DataKey::TotalStaked).unwrap_or(0);
-        env.storage().persistent().set(&DataKey::TotalStaked, &(total_staked - record.amount));
+        let total_staked: i128 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::TotalStaked)
+            .unwrap_or(0);
+        env.storage()
+            .persistent()
+            .set(&DataKey::TotalStaked, &(total_staked - record.amount));
 
         env.events().publish(
             (
@@ -292,7 +307,10 @@ impl StakingContract {
 
     /// Return the total amount staked in the contract.
     pub fn get_total_staked(env: Env) -> i128 {
-        env.storage().persistent().get(&DataKey::TotalStaked).unwrap_or(0)
+        env.storage()
+            .persistent()
+            .get(&DataKey::TotalStaked)
+            .unwrap_or(0)
     }
 }
 
