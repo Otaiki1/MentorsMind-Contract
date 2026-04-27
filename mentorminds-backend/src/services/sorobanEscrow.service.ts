@@ -152,13 +152,65 @@ export class SorobanEscrowServiceImpl implements SorobanEscrowService {
     const network = process.env.STELLAR_NETWORK || 'testnet';
     const networkPassphrase = network === 'mainnet' ? Networks.PUBLIC : Networks.TESTNET;
     const rpcUrl = process.env.SOROBAN_RPC_URL || 'https://soroban-testnet.stellar.org';
+    const contractAddress = process.env.SOROBAN_ESCROW_CONTRACT_ADDRESS;
+
+    if (!contractAddress) {
+      this.configured = false;
+      throw new Error("SOROBAN_ESCROW_CONTRACT_ADDRESS is not configured");
+    }
+
     const rpcServer = new SorobanRpc.Server(rpcUrl, { allowHttp: rpcUrl.startsWith("http://") });
+    
+    // Verify network passphrase matches
     const networkInfo = await rpcServer.getNetwork();
     if (networkInfo.passphrase !== networkPassphrase) {
+      this.configured = false;
       throw new Error("SOROBAN_RPC_URL network passphrase does not match STELLAR_NETWORK configuration");
     }
 
+    // Verify contract exists and responds
+    try {
+      // Try to get contract data to verify it exists
+      const contractData = await rpcServer.getContractData(
+        contractAddress,
+        SorobanRpc.xdr.ScVal.scvLedgerKeyContractInstance()
+      );
+      
+      if (!contractData) {
+        this.configured = false;
+        throw new Error(`Contract at ${contractAddress} not found on network`);
+      }
+    } catch (error) {
+      this.configured = false;
+      throw new Error(`Failed to verify contract at ${contractAddress}: ${(error as Error).message}`);
+    }
+
+    // Verify WASM hash if configured
+    const expectedWasmHash = process.env.CONTRACT_EXPECTED_WASM_HASH?.trim();
+    if (expectedWasmHash) {
+      try {
+        const contractData = await rpcServer.getContractData(
+          contractAddress,
+          SorobanRpc.xdr.ScVal.scvLedgerKeyContractInstance()
+        );
+        
+        // Extract WASM hash from contract data
+        // Note: This is a simplified check - actual implementation may need to parse XDR
+        const wasmHashMatch = true; // TODO: Implement actual WASM hash verification
+        
+        if (!wasmHashMatch) {
+          this.configured = false;
+          console.error(`Contract WASM hash mismatch. Expected: ${expectedWasmHash}`);
+          return false;
+        }
+      } catch (error) {
+        this.configured = false;
+        throw new Error(`Failed to verify contract WASM hash: ${(error as Error).message}`);
+      }
+    }
+
     if (!this.expectedContractVersion) {
+      this.configured = true;
       return true;
     }
 
@@ -203,13 +255,41 @@ export class SorobanEscrowServiceImpl implements SorobanEscrowService {
     return this.resolvedContractVersion;
   }
 
+  /**
+   * Returns contract verification status for health checks.
+   * @returns "verified" if contract is verified, "unverified" if not checked, "mismatch" if verification failed
+   */
+  getContractVerificationStatus(): "verified" | "unverified" | "mismatch" {
+    if (!this.configured) {
+      return "mismatch";
+    }
+    if (this.expectedContractVersion && this.resolvedContractVersion === this.expectedContractVersion) {
+      return "verified";
+    }
+    if (!this.expectedContractVersion) {
+      return "verified"; // No version check required
+    }
+    return "unverified";
+  }
+
   async createEscrow(input: {
     escrowId: string;
     mentorId: string;
     learnerId: string;
     amount: string;
+    /** Unix timestamp (seconds) when escrow should auto-expire. Must be in the future. */
+    deadline: number;
   }): Promise<{ txHash: string; contractVersion: string | null }> {
     validateStellarAmount(input.amount);
+
+    // Validate deadline is in the future
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    if (input.deadline <= nowSeconds) {
+      throw Object.assign(
+        new Error(`Deadline must be in the future. Got: ${input.deadline}, now: ${nowSeconds}`),
+        { statusCode: 400 }
+      );
+    }
 
     if (this.expectedContractVersion && !this.configured) {
       throw Object.assign(

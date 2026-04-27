@@ -61,7 +61,7 @@ describe('AdminEscrowService', () => {
     });
 
     const service = new AdminEscrowService('contract-id', 'https://rpc.test', 'SADMINSECRET');
-    const hash = await service.resolveDispute(42, true);
+    const hash = await service.resolveDispute(42, 100);
 
     expect(hash).toBe('tx-resolve-123');
     expect(mockFromSecret).toHaveBeenCalledWith('SADMINSECRET');
@@ -69,7 +69,7 @@ describe('AdminEscrowService', () => {
     expect(mockServerCtor).toHaveBeenCalledWith('https://rpc.test');
     expect(mockGetLatestLedger).toHaveBeenCalledTimes(1);
     expect(mockGetAccount).toHaveBeenCalledWith('GADMINPUBLICKEY');
-    expect(mockContractCall).toHaveBeenCalledWith('resolve_dispute', 42, true);
+    expect(mockContractCall).toHaveBeenCalledWith('resolve_dispute', 42, 100);
     expect(mockTransactionBuilderCtor).toHaveBeenCalledWith(
       { accountId: 'source' },
       {
@@ -91,8 +91,24 @@ describe('AdminEscrowService', () => {
 
     const service = new AdminEscrowService('contract-id', 'https://rpc.test', 'SADMINSECRET');
 
-    await expect(service.resolveDispute(7, false)).rejects.toThrow(
+    await expect(service.resolveDispute(7, 0)).rejects.toThrow(
       'Failed to send transaction: ERROR'
+    );
+  });
+
+  test('resolveDispute validates percentage is integer between 0-100', async () => {
+    const service = new AdminEscrowService('contract-id', 'https://rpc.test', 'SADMINSECRET');
+
+    await expect(service.resolveDispute(42, 75.5)).rejects.toThrow(
+      'mentorPct must be an integer between 0 and 100'
+    );
+
+    await expect(service.resolveDispute(42, -1)).rejects.toThrow(
+      'mentorPct must be an integer between 0 and 100'
+    );
+
+    await expect(service.resolveDispute(42, 101)).rejects.toThrow(
+      'mentorPct must be an integer between 0 and 100'
     );
   });
 
