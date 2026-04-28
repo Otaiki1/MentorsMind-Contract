@@ -94,6 +94,16 @@ export interface TransactionResult {
   result: any;
 }
 
+// Startup guard: fail fast if the installed SDK does not expose assembleTransaction.
+// Submitting an unassembled Soroban transaction will be rejected by the network
+// with resource/auth errors because simulation results have not been applied.
+if (typeof (SorobanRpc as any).assembleTransaction !== 'function') {
+  throw new Error(
+    'SorobanRpc.assembleTransaction is required but not available in the installed SDK version. ' +
+    'Please ensure @stellar/stellar-sdk 15.0.1 or later is installed.'
+  );
+}
+
 export class StellarSorobanClient {
   private readonly rpcServer: SorobanRpc.Server;
   private readonly networkPassphrase: string;
