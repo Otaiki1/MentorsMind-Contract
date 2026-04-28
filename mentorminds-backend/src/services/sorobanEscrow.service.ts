@@ -89,10 +89,107 @@ export interface ContractTransactionResult {
   fee: string;
 }
 
+export interface TransactionResult {
+  txHash: string;
+  result: any;
+}
+
 export class StellarSorobanClient {
+  private readonly rpcServer: SorobanRpc.Server;
+  private readonly networkPassphrase: string;
+
   constructor(
-    private readonly feesService: Pick<StellarFeesService, "getFeeEstimate">
-  ) {}
+    private readonly feesService: Pick<StellarFeesService, "getFeeEstimate">,
+    rpcUrl?: string,
+    network?: string
+  ) {
+    const url = rpcUrl || process.env.SOROBAN_RPC_URL || 'https://soroban-testnet.stellar.org';
+    const networkType = network || process.env.STELLAR_NETWORK || 'testnet';
+    
+    this.rpcServer = new SorobanRpc.Server(url, { allowHttp: url.startsWith("http://") });
+    this.networkPassphrase = networkType === 'mainnet' ? Networks.PUBLIC : Networks.TESTNET;
+  }
+
+  /**
+   * Verifies that the RPC server's network passphrase matches the configured network.
+   * Should be called at startup to prevent network mismatch issues.
+   */
+  async verifyNetworkPassphrase(): Promise<void> {
+    const networkInfo = await this.rpcServer.getNetwork();
+    if (networkInfo.passphrase !== this.networkPassphrase) {
+      throw new Error(
+        `SOROBAN_RPC_URL network passphrase does not match STELLAR_NETWORK configuration. ` +
+        `Expected: ${this.networkPassphrase}, Got: ${networkInfo.passphrase}`
+      );
+    }
+  }
+
+  /**
+   * Polls for transaction confirmation after submission.
+   * Waits until the transaction is included in a ledger with SUCCESS or FAILED status.
+   * 
+   * @param txHash - Transaction hash to poll for
+   * @param timeoutMs - Maximum time to wait (default: 30 seconds)
+   * @param pollIntervalMs - Time between polls (default: 2 seconds)
+   * @returns Transaction result when confirmed
+   * @throws Error if transaction fails or times out
+   */
+  async waitForTransaction(
+    txHash: string,
+    timeoutMs: number = 30000,
+    pollIntervalMs: number = 2000
+  ): Promise<SorobanRpc.Api.GetTransactionResponse> {
+    const startTime = Date.now();
+    
+    while (Date.now() - startTime < timeoutMs) {
+      const txResponse = await this.rpcServer.getTransaction(txHash);
+      
+      if (txResponse.status === SorobanRpc.Api.GetTransactionStatus.SUCCESS) {
+        return txResponse;
+      }
+      
+      if (txResponse.status === SorobanRpc.Api.GetTransactionStatus.FAILED) {
+        const resultXdr = (txResponse as any).resultXdr;
+        throw new Error(
+          `Transaction ${txHash} failed. Result XDR: ${resultXdr || 'not available'}`
+        );
+      }
+      
+      // Status is NOT_FOUND or still pending, continue polling
+      await new Promise(resolve => setTimeout(resolve, pollIntervalMs));
+    }
+    
+    throw new Error(
+      `Transaction ${txHash} confirmation timeout after ${timeoutMs}ms. ` +
+      `Transaction may still be pending or was not included in a ledger.`
+    );
+  }
+
+  /**
+   * Invokes a Soroban contract method and waits for confirmation.
+   * 
+   * @param preparedTx - Prepared transaction to submit
+   * @returns Transaction hash and result after confirmation
+   * @throws Error if transaction fails or times out
+   */
+  async invoke(preparedTx: any): Promise<TransactionResult> {
+    // Submit transaction
+    const sendResponse = await this.rpcServer.sendTransaction(preparedTx);
+    
+    if (!sendResponse?.hash) {
+      throw new Error('Transaction submission failed: no hash returned');
+    }
+    
+    const txHash = sendResponse.hash;
+    
+    // Wait for confirmation
+    const confirmedTx = await this.waitForTransaction(txHash);
+    
+    return {
+      txHash,
+      result: confirmedTx,
+    };
+  }
 
   async buildContractTransaction(): Promise<ContractTransactionResult> {
     const feeMultiplier = parseInt(
@@ -161,11 +258,19 @@ export class SorobanEscrowServiceImpl implements SorobanEscrowService {
 
     const rpcServer = new SorobanRpc.Server(rpcUrl, { allowHttp: rpcUrl.startsWith("http://") });
     
-    // Verify network passphrase matches
-    const networkInfo = await rpcServer.getNetwork();
-    if (networkInfo.passphrase !== networkPassphrase) {
+    // FIX #259: Verify network passphrase matches to prevent mainnet/testnet mismatches
+    try {
+      const networkInfo = await rpcServer.getNetwork();
+      if (networkInfo.passphrase !== networkPassphrase) {
+        this.configured = false;
+        throw new Error(
+          `SOROBAN_RPC_URL network passphrase does not match STELLAR_NETWORK configuration. ` +
+          `Expected: ${networkPassphrase}, Got: ${networkInfo.passphrase}`
+        );
+      }
+    } catch (error) {
       this.configured = false;
-      throw new Error("SOROBAN_RPC_URL network passphrase does not match STELLAR_NETWORK configuration");
+      throw new Error(`Failed to verify network configuration: ${(error as Error).message}`);
     }
 
     // Verify contract exists and responds
@@ -301,11 +406,64 @@ export class SorobanEscrowServiceImpl implements SorobanEscrowService {
     }
 
     // TODO: invoke the Soroban contract here
-    // const result = await sorobanClient.invoke('create_escrow', { ... });
-    // return { txHash: result.hash, contractVersion: this.resolvedContractVersion };
+    // const client = new StellarSorobanClient(feesService);
+    // await client.verifyNetworkPassphrase();
+    // const preparedTx = await prepareCreateEscrowTx({ ... });
+    // const result = await client.invoke(preparedTx);
+    // return { txHash: result.txHash, contractVersion: this.resolvedContractVersion };
 
     throw new Error(
       "SorobanEscrowServiceImpl: contract invocation not yet wired up"
+    );
+  }
+
+  async openDispute(input: {
+    escrowId: string;
+    raisedBy: string;
+    reason: string;
+  }): Promise<{ txHash: string }> {
+    if (this.expectedContractVersion && !this.configured) {
+      throw Object.assign(
+        new Error(
+          "Soroban escrow integration disabled due to contract version mismatch"
+        ),
+        { statusCode: 503 }
+      );
+    }
+
+    // TODO: invoke the Soroban contract here
+    // const client = new StellarSorobanClient(feesService);
+    // await client.verifyNetworkPassphrase();
+    // const preparedTx = await prepareOpenDisputeTx({ ... });
+    // const result = await client.invoke(preparedTx);
+    // return { txHash: result.txHash };
+
+    throw new Error(
+      "SorobanEscrowServiceImpl: openDispute not yet wired up"
+    );
+  }
+
+  async resolveDispute(input: {
+    escrowId: string;
+  }): Promise<{ txHash: string }> {
+    if (this.expectedContractVersion && !this.configured) {
+      throw Object.assign(
+        new Error(
+          "Soroban escrow integration disabled due to contract version mismatch"
+        ),
+        { statusCode: 503 }
+      );
+    }
+
+    // TODO: invoke the Soroban contract here
+    // const client = new StellarSorobanClient(feesService);
+    // await client.verifyNetworkPassphrase();
+    // const preparedTx = await prepareResolveDisputeTx({ ... });
+    // const result = await client.invoke(preparedTx);
+    // return { txHash: result.txHash };
+
+    throw new Error(
+      "SorobanEscrowServiceImpl: resolveDispute not yet wired up"
     );
   }
 

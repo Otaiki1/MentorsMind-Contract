@@ -44,6 +44,16 @@ export interface SorobanEscrowService {
     learnerId: string;
     amount: string;
   }): Promise<{ txHash: string; contractVersion: string | null }>;
+  
+  openDispute(input: {
+    escrowId: string;
+    raisedBy: string;
+    reason: string;
+  }): Promise<{ txHash: string }>;
+  
+  resolveDispute(input: {
+    escrowId: string;
+  }): Promise<{ txHash: string }>;
 }
 
 export class EscrowApiService {
@@ -132,7 +142,11 @@ export class EscrowApiService {
     return this.escrowRepository.updateStatus(escrowId, "refunded");
   }
 
-  async openDispute(escrowId: string): Promise<EscrowRecord> {
+  async openDispute(
+    escrowId: string,
+    raisedBy: string,
+    reason: string
+  ): Promise<EscrowRecord> {
     const escrow = await this.escrowRepository.findById(escrowId);
     if (!escrow) {
       throw new Error(`Escrow ${escrowId} not found`);
@@ -142,6 +156,26 @@ export class EscrowApiService {
         `Cannot open dispute for escrow in ${escrow.status} status`
       );
     }
+    
+    // FIX #258: Call on-chain openDispute FIRST before creating DB record
+    // This ensures DB is only updated after on-chain confirmation
+    let onChainTxHash: string | null = null;
+    try {
+      const result = await this.sorobanEscrowService.openDispute({
+        escrowId,
+        raisedBy,
+        reason,
+      });
+      onChainTxHash = result.txHash;
+    } catch (error) {
+      // On-chain call failed, do not create DB record
+      throw new Error(
+        `Failed to open dispute on-chain for escrow ${escrowId}: ${(error as Error).message}`
+      );
+    }
+    
+    // On-chain call succeeded, now update DB
+    // TODO: Store onChainTxHash in disputes table when it's created
     return this.escrowRepository.updateStatus(escrowId, "disputed");
   }
 

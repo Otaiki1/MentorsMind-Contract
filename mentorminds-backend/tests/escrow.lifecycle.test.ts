@@ -84,9 +84,19 @@ class InMemoryBookingRepo implements BookingRepository {
 // Mock SorobanEscrowService
 class MockSorobanEscrowService implements SorobanEscrowService {
   public mockCreateEscrow = jest.fn();
+  public mockOpenDispute = jest.fn().mockResolvedValue({ txHash: "dispute-tx-hash" });
+  public mockResolveDispute = jest.fn().mockResolvedValue({ txHash: "resolve-tx-hash" });
   
   async createEscrow(input: any) {
     return this.mockCreateEscrow(input);
+  }
+
+  async openDispute(input: any) {
+    return this.mockOpenDispute(input);
+  }
+
+  async resolveDispute(input: any) {
+    return this.mockResolveDispute(input);
   }
 
   // Placeholder for the "already exists" method mentioned by user
@@ -184,7 +194,7 @@ describe("Escrow Lifecycle E2E", () => {
     });
 
     // Open Dispute
-    const disputed = await escrowApi.openDispute(escrow.id);
+    const disputed = await escrowApi.openDispute(escrow.id, "learner-1", "Service not delivered");
     expect(disputed.status).toBe("disputed");
 
     // Admin Resolves
