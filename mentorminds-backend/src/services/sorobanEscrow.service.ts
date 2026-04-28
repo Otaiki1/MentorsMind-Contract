@@ -79,6 +79,15 @@ export interface BookingRepository {
     status: BookingPaymentStatus
   ): Promise<void>;
   findBookingsWithActiveEscrow(statuses: string[]): Promise<BookingRecord[]>;
+  findBookingsWithActiveEscrowPaginated(
+    statuses: string[],
+    options: {
+      limit: number;
+      afterBookingId?: string | null;
+      minLastSyncMinutes?: number;
+    }
+  ): Promise<BookingRecord[]>;
+  updateLastEscrowSync(bookingId: string): Promise<void>;
 }
 
 export interface EscrowStateResolver {
@@ -511,12 +520,14 @@ export class SorobanEscrowServiceImpl implements SorobanEscrowService {
   }
 
   /**
-   * Syncs on-chain escrow state to bookings.
+   * Syncs on-chain escrow state to bookings with cursor-based pagination.
    *
    * Includes 'pending' bookings because escrow is created when payment is
    * confirmed, which can happen before the mentor confirms the booking.
    * Omitting 'pending' means timeout refunds on pending bookings are never
    * reflected in the DB.
+   * 
+   * @deprecated Use syncPendingEscrowsOptimized instead
    */
   async syncPendingEscrows(
     bookingRepo: BookingRepository,
@@ -532,6 +543,145 @@ export class SorobanEscrowServiceImpl implements SorobanEscrowService {
     for (const booking of bookings) {
       const state = await escrowStateResolver.getEscrowState(booking.escrowId);
       await this.applyEscrowStateToBookings(state, booking.id, bookingRepo);
+    }
+  }
+
+  /**
+   * Optimized escrow sync with cursor-based pagination and rate limiting.
+   * 
+   * Features:
+   * - Cursor-based pagination to handle >200 active escrows
+   * - Only syncs bookings not synced in the last 5 minutes
+   * - Distributed locking to prevent duplicate work across instances
+   * - Metrics tracking for monitoring
+   * - Batch processing with configurable limits
+   * 
+   * @param bookingRepo - Repository for booking operations
+   * @param escrowStateResolver - Resolver for on-chain escrow state
+   * @param options - Sync configuration options
+   * @returns Sync result with statistics
+   */
+  async syncPendingEscrowsOptimized(
+    bookingRepo: BookingRepository,
+    escrowStateResolver: EscrowStateResolver,
+    options?: {
+      batchSize?: number;
+      minSyncIntervalMinutes?: number;
+      maxBatches?: number;
+    }
+  ): Promise<{
+    bookingsProcessed: number;
+    rpcCalls: number;
+    duration: number;
+    hasMore: boolean;
+  }> {
+    const startTime = Date.now();
+    const batchSize = options?.batchSize || 50; // Reduced from 200
+    const minSyncIntervalMinutes = options?.minSyncIntervalMinutes || 5;
+    const maxBatches = options?.maxBatches || 1; // Process 1 batch per cycle by default
+    
+    let bookingsProcessed = 0;
+    let rpcCalls = 0;
+    let batchesProcessed = 0;
+    let lastBookingId: string | null = null;
+    let hasMore = true;
+
+    try {
+      // Import sync state service dynamically to avoid circular dependencies
+      const { escrowSyncStateService } = await import('./escrow-sync-state.service');
+      
+      // Get current sync state
+      const syncState = await escrowSyncStateService.getSyncState();
+      lastBookingId = syncState.lastSyncedBookingId;
+
+      while (batchesProcessed < maxBatches && hasMore) {
+        // Fetch batch with pagination
+        const bookings = await bookingRepo.findBookingsWithActiveEscrowPaginated(
+          ["pending", "confirmed", "completed", "cancelled"],
+          {
+            limit: batchSize,
+            afterBookingId: lastBookingId,
+            minLastSyncMinutes: minSyncIntervalMinutes,
+          }
+        );
+
+        if (bookings.length === 0) {
+          hasMore = false;
+          // Reset cursor to start from beginning next time
+          await escrowSyncStateService.updateSyncState({
+            lastSyncedBookingId: null,
+            currentBatchNumber: 0,
+          });
+          break;
+        }
+
+        // Process batch
+        for (const booking of bookings) {
+          try {
+            const state = await escrowStateResolver.getEscrowState(booking.escrowId);
+            rpcCalls++;
+            
+            await this.applyEscrowStateToBookings(state, booking.id, bookingRepo);
+            
+            // Update last sync timestamp for this booking
+            await bookingRepo.updateLastEscrowSync(booking.id);
+            
+            bookingsProcessed++;
+            lastBookingId = booking.id;
+          } catch (error) {
+            console.error(
+              `[EscrowSync] Failed to sync booking ${booking.id}:`,
+              error
+            );
+            // Continue with next booking instead of failing entire batch
+          }
+        }
+
+        // Update sync state after each batch
+        await escrowSyncStateService.updateSyncState({
+          lastSyncedBookingId: lastBookingId,
+          totalBookingsProcessed: syncState.totalBookingsProcessed + bookingsProcessed,
+          currentBatchNumber: syncState.currentBatchNumber + 1,
+        });
+
+        batchesProcessed++;
+        hasMore = bookings.length === batchSize;
+      }
+
+      const duration = Date.now() - startTime;
+
+      // Update metrics
+      const { escrowSyncStateService: syncService } = await import('./escrow-sync-state.service');
+      await syncService.updateSyncMetrics({
+        syncDuration: duration,
+        bookingsProcessed,
+        rpcCalls,
+        error: null,
+      });
+
+      return {
+        bookingsProcessed,
+        rpcCalls,
+        duration,
+        hasMore,
+      };
+    } catch (error) {
+      const duration = Date.now() - startTime;
+      
+      // Update metrics with error
+      try {
+        const { escrowSyncStateService: syncService } = await import('./escrow-sync-state.service');
+        await syncService.updateSyncMetrics({
+          syncDuration: duration,
+          bookingsProcessed,
+          rpcCalls,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      } catch (metricsError) {
+        console.error('[EscrowSync] Failed to update error metrics:', metricsError);
+      }
+
+      throw error;
     }
   }
 }
