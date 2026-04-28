@@ -1,68 +1,112 @@
-import { createCipheriv, createDecipheriv, randomBytes, createHash } from 'crypto';
+import * as crypto from 'crypto';
 
 const ALGORITHM = 'aes-256-gcm';
-const IV_LENGTH = 12;
-const TAG_LENGTH = 16;
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
-function getKey(): Buffer {
-  const secret = process.env.ENCRYPTION_KEY;
-  if (!secret) throw new Error('ENCRYPTION_KEY environment variable is not set');
-  return createHash('sha256').update(secret).digest();
+export interface KeyVersion {
+  version: string;
+  key: Buffer;
 }
 
-interface EncryptedPayload {
-  iv: string;
-  tag: string;
-  data: string;
+export interface Keyset {
+  currentVersion: string;
+  keys: Record<string, Buffer>;
 }
 
-function parseEncryptedValue(value: string): EncryptedPayload {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(value);
-  } catch {
-    throw new Error('Invalid encrypted payload: not valid JSON');
-  }
-  const p = parsed as Record<string, unknown>;
-  if (typeof p.iv !== 'string' || typeof p.tag !== 'string' || typeof p.data !== 'string') {
-    throw new Error('Invalid encrypted payload: missing required fields');
-  }
-  return { iv: p.iv, tag: p.tag, data: p.data };
+interface CachedKeyset {
+  keyset: Keyset;
+  cachedAt: number;
 }
 
-export class EncryptionUtil {
-  static encrypt(plaintext: string): string {
-    const key = getKey();
-    const iv = randomBytes(IV_LENGTH);
-    const cipher = createCipheriv(ALGORITHM, key, iv);
-    const encrypted = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
-    const tag = cipher.getAuthTag();
-    const payload: EncryptedPayload = {
-      iv: iv.toString('hex'),
-      tag: tag.toString('hex'),
-      data: encrypted.toString('hex'),
-    };
-    return JSON.stringify(payload);
+let cache: CachedKeyset | null = null;
+
+/**
+ * Loads the keyset from the environment (or AWS Secrets Manager in production).
+ * Parses PII_ENCRYPTION_KEYS as JSON: { "v1": "<hex>", "v2": "<hex>", ... }
+ * and PII_ENCRYPTION_CURRENT_VERSION as the active version string.
+ */
+function loadKeysetFromEnv(): Keyset {
+  const raw = process.env.PII_ENCRYPTION_KEYS;
+  if (!raw) throw new Error('PII_ENCRYPTION_KEYS is not set');
+
+  const currentVersion = process.env.PII_ENCRYPTION_CURRENT_VERSION;
+  if (!currentVersion) throw new Error('PII_ENCRYPTION_CURRENT_VERSION is not set');
+
+  const parsed: Record<string, string> = JSON.parse(raw);
+  const keys: Record<string, Buffer> = {};
+  for (const [ver, hex] of Object.entries(parsed)) {
+    keys[ver] = Buffer.from(hex, 'hex');
   }
 
-  static decrypt(value: string): string {
-    const key = getKey();
-    const { iv, tag, data } = parseEncryptedValue(value);
-    const decipher = createDecipheriv(ALGORITHM, key, Buffer.from(iv, 'hex'));
-    decipher.setAuthTag(Buffer.from(tag, 'hex'));
-    return decipher.update(Buffer.from(data, 'hex')) + decipher.final('utf8');
+  if (!keys[currentVersion]) {
+    throw new Error(`Current version "${currentVersion}" not found in PII_ENCRYPTION_KEYS`);
   }
 
-  /**
-   * Safe variant of decrypt — returns null instead of throwing when the
-   * encrypted value is missing, corrupted, or fails authentication.
-   */
-  static decryptSafe(value: string | null | undefined): string | null {
-    if (value == null) return null;
-    try {
-      return EncryptionUtil.decrypt(value);
-    } catch {
-      return null;
-    }
+  return { currentVersion, keys };
+}
+
+/**
+ * Returns the keyset, refreshing from source if the cache is older than 5 minutes.
+ * Pass forceRefresh=true to bypass the TTL (e.g. after a key rotation).
+ */
+export async function getKeyset(forceRefresh = false): Promise<Keyset> {
+  const now = Date.now();
+  if (!forceRefresh && cache && now - cache.cachedAt < CACHE_TTL_MS) {
+    return cache.keyset;
   }
+
+  const keyset = loadKeysetFromEnv();
+  cache = { keyset, cachedAt: now };
+  return keyset;
+}
+
+/** Clears the in-memory keyset cache, forcing the next call to reload. */
+export function clearCache(): void {
+  cache = null;
+}
+
+/**
+ * Logs the current key version at startup so operators can confirm
+ * which key is active without exposing the key material itself.
+ */
+export async function logKeysetVersion(): Promise<void> {
+  const keyset = await getKeyset();
+  console.info('[EncryptionUtil] Encryption keyset loaded', { version: keyset.currentVersion });
+}
+
+/**
+ * Encrypts a plaintext string using the current key version.
+ * Returns a compact string: "<version>:<ivHex>:<authTagHex>:<ciphertextHex>"
+ */
+export async function encrypt(plaintext: string): Promise<string> {
+  const keyset = await getKeyset();
+  const key = keyset.keys[keyset.currentVersion];
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv(ALGORITHM, key, iv) as crypto.CipherGCM;
+  const encrypted = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
+  const authTag = cipher.getAuthTag();
+  return `${keyset.currentVersion}:${iv.toString('hex')}:${authTag.toString('hex')}:${encrypted.toString('hex')}`;
+}
+
+/**
+ * Decrypts a value produced by `encrypt`.
+ * Automatically selects the correct key version from the keyset,
+ * so old ciphertexts remain readable after a key rotation.
+ */
+export async function decrypt(ciphertext: string): Promise<string> {
+  const parts = ciphertext.split(':');
+  if (parts.length !== 4) throw new Error('Invalid ciphertext format');
+  const [version, ivHex, authTagHex, dataHex] = parts;
+
+  const keyset = await getKeyset();
+  const key = keyset.keys[version];
+  if (!key) throw new Error(`Unknown key version: ${version}`);
+
+  const iv = Buffer.from(ivHex, 'hex');
+  const authTag = Buffer.from(authTagHex, 'hex');
+  const data = Buffer.from(dataHex, 'hex');
+
+  const decipher = crypto.createDecipheriv(ALGORITHM, key, iv) as crypto.DecipherGCM;
+  decipher.setAuthTag(authTag);
+  return decipher.update(data) + decipher.final('utf8');
 }
