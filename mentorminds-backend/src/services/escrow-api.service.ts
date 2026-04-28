@@ -65,6 +65,9 @@ export class EscrowApiService {
   /**
    * Returns true when transitioning from currentStatus to newStatus is
    * a valid escrow state machine step.
+   *
+   * Disputed escrows may only be resolved by an admin via resolveDispute.
+   * refundEscrow and releaseEscrow are both blocked from disputed status.
    */
   static validateStateTransition(
     currentStatus: EscrowStatus,
@@ -73,7 +76,7 @@ export class EscrowApiService {
     const validTransitions: Record<EscrowStatus, EscrowStatus[]> = {
       pending: ["funded"],
       funded: ["released", "disputed", "refunded"],
-      disputed: ["resolved", "refunded"],
+      disputed: ["resolved"],   // refunded and released are intentionally excluded
       released: [],
       refunded: [],
       resolved: [],
