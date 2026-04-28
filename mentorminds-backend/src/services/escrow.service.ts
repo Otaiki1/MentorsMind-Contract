@@ -278,6 +278,15 @@ export class SorobanEscrowService {
       throw new Error(`Deadline must be in the future. Got: ${input.deadline}, now: ${nowSeconds}`);
     }
 
+    // FIX #291: Normalize currency to uppercase and validate against supported assets.
+    // Soroban contracts are case-sensitive — passing 'xlm' when the contract expects
+    // 'XLM' causes the contract to reject the call or create an unreleasable escrow.
+    const SUPPORTED_ASSETS = ['XLM', 'USDC', 'PYUSD'] as const;
+    const currency = input.currency.toUpperCase();
+    if (!(SUPPORTED_ASSETS as readonly string[]).includes(currency)) {
+      throw new Error(`Unsupported currency "${currency}". Supported: ${SUPPORTED_ASSETS.join(', ')}`);
+    }
+
     // Generate unique escrow ID to prevent duplicate ID errors on re-escrow
     const escrowId = this.generateEscrowId(input.bookingId, input.escrowId);
 
@@ -290,7 +299,7 @@ export class SorobanEscrowService {
       nativeToScVal(input.learnerId, { type: 'string' }),
       nativeToScVal(input.mentorId, { type: 'string' }),
       nativeToScVal(input.amount, { type: 'i128' }),
-      nativeToScVal(input.currency, { type: 'string' }),
+      nativeToScVal(currency, { type: 'string' }),
       nativeToScVal(input.deadline, { type: 'u64' })
     );
 

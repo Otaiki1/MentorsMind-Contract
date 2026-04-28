@@ -56,6 +56,8 @@ export interface SorobanEscrowService {
   }): Promise<{ txHash: string }>;
 }
 
+const SUPPORTED_ASSETS = ['XLM', 'USDC', 'PYUSD'] as const;
+
 export class EscrowApiService {
   constructor(
     private readonly escrowRepository: EscrowRepository,
@@ -86,7 +88,17 @@ export class EscrowApiService {
     mentorId: string;
     learnerId: string;
     amount: string;
+    currency?: string;
   }): Promise<EscrowRecord> {
+    // FIX #291: Normalize currency to uppercase and validate before passing to
+    // SorobanEscrowService. Soroban contracts are case-sensitive — 'xlm' != 'XLM'.
+    if (input.currency !== undefined) {
+      const currency = input.currency.toUpperCase();
+      if (!(SUPPORTED_ASSETS as readonly string[]).includes(currency)) {
+        throw new Error(`Unsupported currency "${currency}". Supported: ${SUPPORTED_ASSETS.join(', ')}`);
+      }
+    }
+
     const created = await this.escrowRepository.create({
       id: input.id,
       mentorId: input.mentorId,
