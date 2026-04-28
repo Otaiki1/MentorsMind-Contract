@@ -1,3 +1,5 @@
+import { verifyHorizonTransaction } from '../utils/horizon-tx-verifier';
+
 export type EscrowStatus =
   | "pending"
   | "funded"
@@ -65,6 +67,9 @@ export class EscrowApiService {
   /**
    * Returns true when transitioning from currentStatus to newStatus is
    * a valid escrow state machine step.
+   *
+   * Disputed escrows may only be resolved by an admin via resolveDispute.
+   * refundEscrow and releaseEscrow are both blocked from disputed status.
    */
   static validateStateTransition(
     currentStatus: EscrowStatus,
@@ -73,7 +78,7 @@ export class EscrowApiService {
     const validTransitions: Record<EscrowStatus, EscrowStatus[]> = {
       pending: ["funded"],
       funded: ["released", "disputed", "refunded"],
-      disputed: ["resolved", "refunded"],
+      disputed: ["resolved"],   // refunded and released are intentionally excluded
       released: [],
       refunded: [],
       resolved: [],
@@ -103,6 +108,12 @@ export class EscrowApiService {
         mentorId: created.mentorId,
         learnerId: created.learnerId,
         amount: created.amount,
+      });
+
+      // Verify the transaction actually landed on Horizon before marking funded.
+      // This prevents fake or unrelated txHashes from being accepted.
+      await verifyHorizonTransaction(chainResult.txHash, {
+        expectedSourceAccount: created.learnerId,
       });
 
       return this.escrowRepository.markFunded(
