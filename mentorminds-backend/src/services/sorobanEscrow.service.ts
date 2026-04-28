@@ -432,6 +432,13 @@ export class SorobanEscrowServiceImpl implements SorobanEscrowService {
     raisedBy: string;
     reason: string;
   }): Promise<{ txHash: string }> {
+    if (input.reason.length > 500) {
+      throw Object.assign(
+        new Error("Dispute reason must be 500 characters or less"),
+        { statusCode: 400 }
+      );
+    }
+
     if (this.expectedContractVersion && !this.configured) {
       throw Object.assign(
         new Error(
