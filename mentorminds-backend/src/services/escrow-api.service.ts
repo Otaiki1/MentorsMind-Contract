@@ -1,3 +1,5 @@
+import { verifyHorizonTransaction } from '../utils/horizon-tx-verifier';
+
 export type EscrowStatus =
   | "pending"
   | "funded"
@@ -106,6 +108,12 @@ export class EscrowApiService {
         mentorId: created.mentorId,
         learnerId: created.learnerId,
         amount: created.amount,
+      });
+
+      // Verify the transaction actually landed on Horizon before marking funded.
+      // This prevents fake or unrelated txHashes from being accepted.
+      await verifyHorizonTransaction(chainResult.txHash, {
+        expectedSourceAccount: created.learnerId,
       });
 
       return this.escrowRepository.markFunded(
