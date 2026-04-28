@@ -222,10 +222,13 @@ interface CacheStatus {
 /**
  * Asset issuer addresses on the Stellar network.
  * Used to construct order book queries for non-native assets.
+ * Automatically uses correct issuers based on STELLAR_NETWORK env var.
  */
+import { getAssetIssuer } from '../config/asset.config';
+
 const ASSET_ISSUERS: Record<Exclude<AssetCode, 'XLM'>, string> = {
-  USDC: 'GBBD47UZQ2BNSE7E2CMML7BNPI5BEFF2KE5FIXEDISSUERADDRESS',
-  PYUSD: 'GDZ55LVXECRTW4G36ICJVWCIHL7BQUM2FixedIssuerAddress',
+  USDC: getAssetIssuer('USDC') as string,
+  PYUSD: getAssetIssuer('PYUSD') as string,
 };
 
 /**
