@@ -121,9 +121,9 @@ export class EscrowApiService {
     if (!escrow) {
       throw new Error(`Escrow ${escrowId} not found`);
     }
-    if (!EscrowApiService.validateStateTransition(escrow.status, "released")) {
+    if (escrow.status !== "funded") {
       throw new Error(
-        `Cannot release escrow in ${escrow.status} status`
+        `Cannot release escrow in ${escrow.status} status. Escrow must be funded.`
       );
     }
     return this.escrowRepository.updateStatus(escrowId, "released");
@@ -147,6 +147,10 @@ export class EscrowApiService {
     raisedBy: string,
     reason: string
   ): Promise<EscrowRecord> {
+    if (reason.length > 500) {
+      throw new Error("Dispute reason must be 500 characters or less");
+    }
+
     const escrow = await this.escrowRepository.findById(escrowId);
     if (!escrow) {
       throw new Error(`Escrow ${escrowId} not found`);
@@ -157,26 +161,25 @@ export class EscrowApiService {
       );
     }
     
-    // FIX #258: Call on-chain openDispute FIRST before creating DB record
-    // This ensures DB is only updated after on-chain confirmation
-    let onChainTxHash: string | null = null;
+    // Update DB status to disputed first
+    const updatedEscrow = await this.escrowRepository.updateStatus(escrowId, "disputed");
+    
+    // Then attempt on-chain call
     try {
-      const result = await this.sorobanEscrowService.openDispute({
+      await this.sorobanEscrowService.openDispute({
         escrowId,
         raisedBy,
         reason,
       });
-      onChainTxHash = result.txHash;
     } catch (error) {
-      // On-chain call failed, do not create DB record
+      // On-chain call failed, rollback DB status to previous state
+      await this.escrowRepository.updateStatus(escrowId, escrow.status);
       throw new Error(
         `Failed to open dispute on-chain for escrow ${escrowId}: ${(error as Error).message}`
       );
     }
     
-    // On-chain call succeeded, now update DB
-    // TODO: Store onChainTxHash in disputes table when it's created
-    return this.escrowRepository.updateStatus(escrowId, "disputed");
+    return updatedEscrow;
   }
 
   async resolveDispute(escrowId: string): Promise<EscrowRecord> {
