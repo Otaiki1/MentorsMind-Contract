@@ -98,8 +98,8 @@ describe("EscrowApiService.validateStateTransition", () => {
     expect(EscrowApiService.validateStateTransition("disputed", "resolved")).toBe(true);
   });
 
-  it("allows disputed → refunded", () => {
-    expect(EscrowApiService.validateStateTransition("disputed", "refunded")).toBe(true);
+  it("rejects disputed → refunded (must go through admin resolution)", () => {
+    expect(EscrowApiService.validateStateTransition("disputed", "refunded")).toBe(false);
   });
 
   it("rejects pending → released", () => {
@@ -208,13 +208,14 @@ describe("EscrowApiService state-changing methods use validateStateTransition", 
     expect(result.status).toBe("refunded");
   });
 
-  it("refundEscrow succeeds from disputed", async () => {
+  it("refundEscrow throws when escrow is disputed (must go through admin resolution)", async () => {
     const repo = new InMemoryEscrowRepo();
     repo.seed([makeRecord("esc-1", "disputed")]);
     const service = new EscrowApiService(repo, stubSoroban);
 
-    const result = await service.refundEscrow("esc-1");
-    expect(result.status).toBe("refunded");
+    await expect(service.refundEscrow("esc-1")).rejects.toThrow(
+      "Cannot refund escrow in disputed status"
+    );
   });
 
   it("refundEscrow throws when escrow is pending", async () => {
