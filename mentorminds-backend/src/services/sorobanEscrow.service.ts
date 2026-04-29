@@ -122,11 +122,27 @@ export class StellarSorobanClient {
     rpcUrl?: string,
     network?: string
   ) {
+    const sdkAny = SorobanRpc as any;
+    const RpcServerCtor = sdkAny.Server ?? sdkAny.SorobanRpc?.Server ?? sdkAny.rpc?.Server ?? null;
+
+    if (!RpcServerCtor) {
+      throw new Error(
+        '@stellar/stellar-sdk does not support Soroban RPC. Upgrade to v11+'
+      );
+    }
+
     const url = rpcUrl || process.env.SOROBAN_RPC_URL || 'https://soroban-testnet.stellar.org';
     const networkType = network || process.env.STELLAR_NETWORK || 'testnet';
-    
-    this.rpcServer = new SorobanRpc.Server(url, { allowHttp: url.startsWith("http://") });
+
+    this.rpcServer = new RpcServerCtor(url, { allowHttp: url.startsWith("http://") });
     this.networkPassphrase = networkType === 'mainnet' ? Networks.PUBLIC : Networks.TESTNET;
+  }
+
+  /**
+   * Returns true only when both the contract address and the RPC client are configured.
+   */
+  isConfigured(): boolean {
+    return this.rpcServer !== null && !!process.env.SOROBAN_ESCROW_CONTRACT_ADDRESS;
   }
 
   /**
