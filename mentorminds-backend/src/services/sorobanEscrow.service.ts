@@ -493,6 +493,40 @@ export class SorobanEscrowServiceImpl implements SorobanEscrowService {
     );
   }
 
+  async releaseFunds(input: {
+    escrowId: string;
+    releasedBy: string;
+  }): Promise<string> {
+    // Import required classes
+    const { BookingRecord, BookingRepository } = await import('./types');
+
+    // Validate input
+    if (!input.escrowId || !input.releasedBy) {
+      throw Object.assign(
+        new Error("Escrow ID and releasedBy are required"),
+        { statusCode: 400 }
+      );
+    }
+
+    // Check if service is configured
+    if (this.expectedContractVersion && !this.configured) {
+      throw Object.assign(
+        new Error(
+          "Soroban escrow integration disabled due to contract version mismatch"
+        ),
+        { statusCode: 503 }
+      );
+    }
+
+    // Fetch escrow record from database to verify learner
+    // Note: In a real implementation, we would use the escrowRepository
+    // For now, we'll simulate the check by throwing if not wired up
+    // TODO: Replace this with actual repository lookup when available
+    throw new Error(
+      "SorobanEscrowServiceImpl: releaseFunds not yet wired up - needs escrowRepository to verify learnerId matches releasedBy"
+    );
+  }
+
   /**
    * Applies the on-chain escrow state to a booking record.
    *
