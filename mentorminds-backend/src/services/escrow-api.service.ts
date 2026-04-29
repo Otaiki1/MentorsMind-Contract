@@ -40,22 +40,27 @@ export interface EscrowRepository {
 }
 
 export interface SorobanEscrowService {
-  createEscrow(input: {
-    escrowId: string;
-    mentorId: string;
-    learnerId: string;
-    amount: string;
-  }): Promise<{ txHash: string; contractVersion: string | null }>;
-  
-  openDispute(input: {
-    escrowId: string;
-    raisedBy: string;
-    reason: string;
-  }): Promise<{ txHash: string }>;
-  
-  resolveDispute(input: {
-    escrowId: string;
-  }): Promise<{ txHash: string }>;
+    createEscrow(input: {
+        escrowId: string;
+        mentorId: string;
+        learnerId: string;
+        amount: string;
+    }): Promise<{ txHash: string; contractVersion: string | null }>;
+    
+    openDispute(input: {
+        escrowId: string;
+        raisedBy: string;
+        reason: string;
+    }): Promise<{ txHash: string }>;
+    
+    resolveDispute(input: {
+        escrowId: string;
+    }): Promise<{ txHash: string }>;
+    
+    releaseFunds(input: {
+        escrowId: string;
+        releasedBy: string;
+    }): Promise<string>;
 }
 
 const SUPPORTED_ASSETS = ['XLM', 'USDC', 'PYUSD'] as const;
