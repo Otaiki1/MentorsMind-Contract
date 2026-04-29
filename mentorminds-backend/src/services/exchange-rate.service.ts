@@ -312,22 +312,31 @@ class ExchangeRateService {
 
       const data = await response.json();
 
-      // Check if there are any asks (sellers willing to sell toAsset for fromAsset)
-      if (!data.asks || data.asks.length === 0) {
-        throw new Error(
-          `No trading path available for ${fromAsset}/${toAsset}`
-        );
+      // For buying toAsset with fromAsset → use best ask (lowest sell offer).
+      // For selling toAsset to get fromAsset → use best bid (highest buy offer).
+      // This avoids systematically over/under-estimating cost in one direction.
+      const bids: Array<{ price: string }> = data.bids ?? [];
+      const asks: Array<{ price: string }> = data.asks ?? [];
+
+      // The order book is queried as selling=fromAsset, buying=toAsset.
+      // asks[0] = cheapest price to buy toAsset (user is buying) ✓
+      // bids[0] = best price when selling toAsset back (user is selling) ✓
+      let rate: number;
+      if (asks.length > 0 && bids.length > 0) {
+        // Mid-price for display; callers apply slippage on execution
+        const bestAsk = parseFloat(asks[0].price);
+        const bestBid = parseFloat(bids[0].price);
+        rate = (bestAsk + bestBid) / 2;
+      } else if (asks.length > 0) {
+        rate = parseFloat(asks[0].price);
+      } else if (bids.length > 0) {
+        rate = parseFloat(bids[0].price);
+      } else {
+        throw new Error(`No trading path available for ${fromAsset}/${toAsset}`);
       }
 
-      // Use the best ask price (lowest price at which someone will sell)
-      // The price is in terms of: 1 unit of selling_asset = price units of buying_asset
-      const bestAsk = data.asks[0];
-      const rate = parseFloat(bestAsk.price);
-
       if (isNaN(rate) || rate <= 0) {
-        throw new Error(
-          `Invalid exchange rate received: ${bestAsk.price}`
-        );
+        throw new Error(`Invalid exchange rate received for ${fromAsset}/${toAsset}`);
       }
 
       return rate;
