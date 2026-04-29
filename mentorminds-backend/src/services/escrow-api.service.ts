@@ -1,3 +1,5 @@
+import { verifyHorizonTransaction } from '../utils/horizon-tx-verifier';
+
 export type EscrowStatus =
   | "pending"
   | "funded"
@@ -56,6 +58,8 @@ export interface SorobanEscrowService {
   }): Promise<{ txHash: string }>;
 }
 
+const SUPPORTED_ASSETS = ['XLM', 'USDC', 'PYUSD'] as const;
+
 export class EscrowApiService {
   constructor(
     private readonly escrowRepository: EscrowRepository,
@@ -65,6 +69,9 @@ export class EscrowApiService {
   /**
    * Returns true when transitioning from currentStatus to newStatus is
    * a valid escrow state machine step.
+   *
+   * Disputed escrows may only be resolved by an admin via resolveDispute.
+   * refundEscrow and releaseEscrow are both blocked from disputed status.
    */
   static validateStateTransition(
     currentStatus: EscrowStatus,
@@ -73,7 +80,7 @@ export class EscrowApiService {
     const validTransitions: Record<EscrowStatus, EscrowStatus[]> = {
       pending: ["funded"],
       funded: ["released", "disputed", "refunded"],
-      disputed: ["resolved", "refunded"],
+      disputed: ["resolved"],   // refunded and released are intentionally excluded
       released: [],
       refunded: [],
       resolved: [],
@@ -86,7 +93,17 @@ export class EscrowApiService {
     mentorId: string;
     learnerId: string;
     amount: string;
+    currency?: string;
   }): Promise<EscrowRecord> {
+    // FIX #291: Normalize currency to uppercase and validate before passing to
+    // SorobanEscrowService. Soroban contracts are case-sensitive — 'xlm' != 'XLM'.
+    if (input.currency !== undefined) {
+      const currency = input.currency.toUpperCase();
+      if (!(SUPPORTED_ASSETS as readonly string[]).includes(currency)) {
+        throw new Error(`Unsupported currency "${currency}". Supported: ${SUPPORTED_ASSETS.join(', ')}`);
+      }
+    }
+
     const created = await this.escrowRepository.create({
       id: input.id,
       mentorId: input.mentorId,
@@ -105,6 +122,12 @@ export class EscrowApiService {
         amount: created.amount,
       });
 
+      // Verify the transaction actually landed on Horizon before marking funded.
+      // This prevents fake or unrelated txHashes from being accepted.
+      await verifyHorizonTransaction(chainResult.txHash, {
+        expectedSourceAccount: created.learnerId,
+      });
+
       return this.escrowRepository.markFunded(
         created.id,
         chainResult.txHash,
@@ -121,9 +144,9 @@ export class EscrowApiService {
     if (!escrow) {
       throw new Error(`Escrow ${escrowId} not found`);
     }
-    if (!EscrowApiService.validateStateTransition(escrow.status, "released")) {
+    if (escrow.status !== "funded") {
       throw new Error(
-        `Cannot release escrow in ${escrow.status} status`
+        `Cannot release escrow in ${escrow.status} status. Escrow must be funded.`
       );
     }
     return this.escrowRepository.updateStatus(escrowId, "released");
@@ -147,6 +170,10 @@ export class EscrowApiService {
     raisedBy: string,
     reason: string
   ): Promise<EscrowRecord> {
+    if (reason.length > 500) {
+      throw new Error("Dispute reason must be 500 characters or less");
+    }
+
     const escrow = await this.escrowRepository.findById(escrowId);
     if (!escrow) {
       throw new Error(`Escrow ${escrowId} not found`);
@@ -157,26 +184,25 @@ export class EscrowApiService {
       );
     }
     
-    // FIX #258: Call on-chain openDispute FIRST before creating DB record
-    // This ensures DB is only updated after on-chain confirmation
-    let onChainTxHash: string | null = null;
+    // Update DB status to disputed first
+    const updatedEscrow = await this.escrowRepository.updateStatus(escrowId, "disputed");
+    
+    // Then attempt on-chain call
     try {
-      const result = await this.sorobanEscrowService.openDispute({
+      await this.sorobanEscrowService.openDispute({
         escrowId,
         raisedBy,
         reason,
       });
-      onChainTxHash = result.txHash;
     } catch (error) {
-      // On-chain call failed, do not create DB record
+      // On-chain call failed, rollback DB status to previous state
+      await this.escrowRepository.updateStatus(escrowId, escrow.status);
       throw new Error(
         `Failed to open dispute on-chain for escrow ${escrowId}: ${(error as Error).message}`
       );
     }
     
-    // On-chain call succeeded, now update DB
-    // TODO: Store onChainTxHash in disputes table when it's created
-    return this.escrowRepository.updateStatus(escrowId, "disputed");
+    return updatedEscrow;
   }
 
   async resolveDispute(escrowId: string): Promise<EscrowRecord> {

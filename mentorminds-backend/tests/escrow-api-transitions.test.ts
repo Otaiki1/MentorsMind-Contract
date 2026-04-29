@@ -98,8 +98,8 @@ describe("EscrowApiService.validateStateTransition", () => {
     expect(EscrowApiService.validateStateTransition("disputed", "resolved")).toBe(true);
   });
 
-  it("allows disputed → refunded", () => {
-    expect(EscrowApiService.validateStateTransition("disputed", "refunded")).toBe(true);
+  it("rejects disputed → refunded (must go through admin resolution)", () => {
+    expect(EscrowApiService.validateStateTransition("disputed", "refunded")).toBe(false);
   });
 
   it("rejects pending → released", () => {
@@ -175,7 +175,7 @@ describe("EscrowApiService state-changing methods use validateStateTransition", 
     const service = new EscrowApiService(repo, stubSoroban);
 
     await expect(service.releaseEscrow("esc-1")).rejects.toThrow(
-      "Cannot release escrow in pending status"
+      "Cannot release escrow in pending status. Escrow must be funded."
     );
   });
 
@@ -185,7 +185,7 @@ describe("EscrowApiService state-changing methods use validateStateTransition", 
     const service = new EscrowApiService(repo, stubSoroban);
 
     await expect(service.releaseEscrow("esc-1")).rejects.toThrow(
-      "Cannot release escrow in released status"
+      "Cannot release escrow in released status. Escrow must be funded."
     );
   });
 
@@ -195,7 +195,7 @@ describe("EscrowApiService state-changing methods use validateStateTransition", 
     const service = new EscrowApiService(repo, stubSoroban);
 
     await expect(service.releaseEscrow("esc-1")).rejects.toThrow(
-      "Cannot release escrow in disputed status"
+      "Cannot release escrow in disputed status. Escrow must be funded."
     );
   });
 
@@ -208,13 +208,14 @@ describe("EscrowApiService state-changing methods use validateStateTransition", 
     expect(result.status).toBe("refunded");
   });
 
-  it("refundEscrow succeeds from disputed", async () => {
+  it("refundEscrow throws when escrow is disputed (must go through admin resolution)", async () => {
     const repo = new InMemoryEscrowRepo();
     repo.seed([makeRecord("esc-1", "disputed")]);
     const service = new EscrowApiService(repo, stubSoroban);
 
-    const result = await service.refundEscrow("esc-1");
-    expect(result.status).toBe("refunded");
+    await expect(service.refundEscrow("esc-1")).rejects.toThrow(
+      "Cannot refund escrow in disputed status"
+    );
   });
 
   it("refundEscrow throws when escrow is pending", async () => {
@@ -274,6 +275,47 @@ describe("EscrowApiService state-changing methods use validateStateTransition", 
     await expect(service.openDispute("esc-1", "user-1", "Service not delivered")).rejects.toThrow(
       "Cannot open dispute for escrow in disputed status"
     );
+  });
+
+  it("openDispute throws when reason exceeds 500 characters", async () => {
+    const repo = new InMemoryEscrowRepo();
+    repo.seed([makeRecord("esc-1", "funded")]);
+    const service = new EscrowApiService(repo, stubSoroban);
+
+    const longReason = "a".repeat(501);
+    await expect(service.openDispute("esc-1", "user-1", longReason)).rejects.toThrow(
+      "Dispute reason must be 500 characters or less"
+    );
+  });
+
+  it("openDispute succeeds with 500 character reason", async () => {
+    const repo = new InMemoryEscrowRepo();
+    repo.seed([makeRecord("esc-1", "funded")]);
+    const service = new EscrowApiService(repo, stubSoroban);
+
+    const maxReason = "a".repeat(500);
+    const result = await service.openDispute("esc-1", "user-1", maxReason);
+    expect(result.status).toBe("disputed");
+  });
+
+  it("openDispute rolls back DB status when on-chain call fails", async () => {
+    const repo = new InMemoryEscrowRepo();
+    repo.seed([makeRecord("esc-1", "funded")]);
+    
+    const failingSoroban: SorobanEscrowService = {
+      createEscrow: jest.fn(),
+      openDispute: jest.fn().mockRejectedValue(new Error("On-chain error")),
+      resolveDispute: jest.fn(),
+    };
+    
+    const service = new EscrowApiService(repo, failingSoroban);
+
+    await expect(service.openDispute("esc-1", "user-1", "Service not delivered")).rejects.toThrow(
+      "Failed to open dispute on-chain for escrow esc-1: On-chain error"
+    );
+    
+    const escrow = await repo.findById("esc-1");
+    expect(escrow?.status).toBe("funded");
   });
 
   it("resolveDispute succeeds from disputed", async () => {
