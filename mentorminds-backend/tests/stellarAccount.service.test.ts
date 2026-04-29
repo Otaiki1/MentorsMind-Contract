@@ -113,4 +113,40 @@ describe('StellarAccountService', () => {
       );
     });
   });
+
+  describe('fundAccount userId parameter (fix #292)', () => {
+    it('should pass userId to the transaction record — not throw ReferenceError', async () => {
+      (stellarFeesService.getFeeEstimate as jest.Mock).mockResolvedValue({ recommended_fee: '100' });
+      const destination = Keypair.random().publicKey();
+      const userId = 'user-fix-292';
+
+      // Before the fix, userId was not a parameter of fundAccount, causing
+      // ReferenceError: userId is not defined at runtime.
+      await expect(service.fundAccount(destination, userId)).resolves.not.toThrow();
+
+      // Verify the transaction record includes the correct userId
+      const insertCall = (pool.query as jest.Mock).mock.calls.find(
+        ([sql]: [string]) => sql.includes('INSERT INTO transactions')
+      );
+      expect(insertCall).toBeDefined();
+      expect(insertCall[1]).toEqual(
+        expect.arrayContaining([userId, destination, 'completed'])
+      );
+    });
+
+    it('createAndFundWallet passes userId through to the transaction record', async () => {
+      (stellarFeesService.getFeeEstimate as jest.Mock).mockResolvedValue({ recommended_fee: '100' });
+      const userId = 'user-wallet-292';
+
+      const publicKey = await service.createAndFundWallet(userId);
+
+      const insertCall = (pool.query as jest.Mock).mock.calls.find(
+        ([sql]: [string]) => sql.includes('INSERT INTO transactions')
+      );
+      expect(insertCall).toBeDefined();
+      expect(insertCall[1]).toEqual(
+        expect.arrayContaining([userId, publicKey, 'completed'])
+      );
+    });
+  });
 });
