@@ -42,18 +42,18 @@ export class StellarTxWorker {
     private readonly submitter: StellarTxSubmitter
   ) {}
 
-  async process(paymentId: string, signedXdr: string, knownHash?: string): Promise<void> {
-    // If we already know the hash (from a prior attempt), check Horizon first
-    // to avoid re-submitting a transaction that was already included in a ledger.
-    if (knownHash) {
-      const existing = await this.submitter.getTransaction(knownHash).catch(() => null);
-      if (existing) {
-        await this.pool.query(
-          "UPDATE transactions SET status = 'completed', transaction_hash = $1, updated_at = NOW() WHERE id = $2",
-          [existing.hash, paymentId]
-        );
-        return;
-      }
+  async process(paymentId: string, signedXdr: string): Promise<void> {
+    // Always derive the hash from the XDR and check Horizon first.
+    // This prevents re-submitting a transaction that was already included in a
+    // ledger — even if the job was retried or enqueued with a different paymentId.
+    const txHash = txHashFromXdr(signedXdr);
+    const existing = await this.submitter.getTransaction(txHash).catch(() => null);
+    if (existing) {
+      await this.pool.query(
+        "UPDATE transactions SET status = 'completed', transaction_hash = $1, updated_at = NOW() WHERE id = $2",
+        [existing.hash, paymentId]
+      );
+      return;
     }
 
     try {
