@@ -483,29 +483,176 @@ export class HorizonStreamService {
   }
 
   /**
-   * Process incoming payment operation.
-   * Checks if payment matches a pending transaction, and alerts only for unmatched large payments.
+   * Process incoming payment operation with amount verification.
+   * 
+   * Security checks:
+   * 1. Matches payment to pending transaction by from/to addresses
+   * 2. Verifies payment amount >= expected amount
+   * 3. Marks as underpaid if amount is insufficient
+   * 4. Logs security alerts for mismatched amounts
+   * 5. Alerts on large unmatched payments
+   * 
+   * @param payment - Payment details from Stellar network
+   * @param account - Account that received the payment
    */
   async processPaymentOperation(payment: {
     from: string;
     to: string;
     amount: string;
     asset: string;
+    txHash?: string;
+    ledger?: number;
   }, account: string): Promise<void> {
-    // Check if this payment matches a pending transaction.
-    // Use numeric comparison with tolerance to handle Stellar's 7-decimal format
-    // (e.g. "100.0000000") vs DB values with different precision (e.g. "100").
-    const transaction = await paymentTrackerService.findPending().then(pending =>
-      pending.find(p =>
-        p.senderAddress === payment.from &&
-        p.receiverAddress === payment.to &&
-        Math.abs(parseFloat(p.amount) - parseFloat(payment.amount)) < 0.0000001
-      )
+    const { securityAlertService } = await import('./security-alert.service');
+    
+    // Find pending transactions that match sender and receiver addresses
+    const pendingTransactions = await paymentTrackerService.findPending();
+    const matchingTransactions = pendingTransactions.filter(tx =>
+      tx.senderAddress === payment.from &&
+      tx.receiverAddress === payment.to
     );
 
-    if (!transaction) {
-      // Only alert for large unmatched payments
+    if (matchingTransactions.length === 0) {
+      // No matching transaction - alert if large payment
       await this.alertOnLargeIncomingTransaction(payment, account);
+      return;
+    }
+
+    // Check each matching transaction for amount verification
+    for (const transaction of matchingTransactions) {
+      const expectedAmount = parseFloat(transaction.amount);
+      const receivedAmount = parseFloat(payment.amount);
+
+      // Validate amounts are valid numbers
+      if (isNaN(expectedAmount) || isNaN(receivedAmount)) {
+        console.error('[HorizonStream] Invalid amount format:', {
+          transactionId: transaction.id,
+          expectedAmount: transaction.amount,
+          receivedAmount: payment.amount,
+        });
+        
+        await securityAlertService.logAlert({
+          type: 'payment_amount_mismatch',
+          severity: 'high',
+          message: 'Invalid amount format in payment verification',
+          details: {
+            transactionId: transaction.id,
+            expectedAmount: transaction.amount,
+            receivedAmount: payment.amount,
+            from: payment.from,
+            to: payment.to,
+            txHash: payment.txHash,
+          },
+        });
+        
+        continue;
+      }
+
+      // CRITICAL SECURITY CHECK: Verify received amount >= expected amount
+      if (receivedAmount < expectedAmount) {
+        // Payment is underpaid - mark as underpaid and alert
+        const shortfall = expectedAmount - receivedAmount;
+        const shortfallPercentage = ((shortfall / expectedAmount) * 100).toFixed(2);
+
+        console.error('[HorizonStream] SECURITY ALERT: Underpaid transaction detected', {
+          transactionId: transaction.id,
+          expectedAmount: transaction.amount,
+          receivedAmount: payment.amount,
+          shortfall: shortfall.toFixed(7),
+          shortfallPercentage: `${shortfallPercentage}%`,
+          from: payment.from,
+          to: payment.to,
+          asset: payment.asset,
+          txHash: payment.txHash,
+        });
+
+        await securityAlertService.logAlert({
+          type: 'underpaid_transaction',
+          severity: 'high',
+          message: `Transaction underpaid by ${shortfall.toFixed(7)} ${payment.asset} (${shortfallPercentage}%)`,
+          details: {
+            transactionId: transaction.id,
+            expectedAmount: transaction.amount,
+            receivedAmount: payment.amount,
+            shortfall: shortfall.toFixed(7),
+            shortfallPercentage,
+            from: payment.from,
+            to: payment.to,
+            asset: payment.asset,
+            txHash: payment.txHash,
+            ledger: payment.ledger,
+          },
+        });
+
+        // Mark transaction as underpaid
+        await paymentTrackerService.updateStatus(
+          transaction.id,
+          'underpaid',
+          {
+            ledgerSequence: payment.ledger,
+            errorCode: 'UNDERPAID',
+            errorMessage: `Payment underpaid: expected ${transaction.amount} ${payment.asset}, received ${payment.amount} ${payment.asset}. Shortfall: ${shortfall.toFixed(7)} ${payment.asset}`,
+          }
+        );
+
+        // TODO: Notify user about underpayment
+        // await notificationService.notifyUnderpayment({
+        //   userId: transaction.sessionId,
+        //   expectedAmount: transaction.amount,
+        //   receivedAmount: payment.amount,
+        //   shortfall: shortfall.toFixed(7),
+        // });
+
+        continue;
+      }
+
+      // Amount verification passed - confirm transaction
+      console.log('[HorizonStream] Payment verified and confirmed:', {
+        transactionId: transaction.id,
+        expectedAmount: transaction.amount,
+        receivedAmount: payment.amount,
+        from: payment.from,
+        to: payment.to,
+        asset: payment.asset,
+        txHash: payment.txHash,
+      });
+
+      await paymentTrackerService.updateStatus(
+        transaction.id,
+        'confirmed',
+        {
+          ledgerSequence: payment.ledger,
+        }
+      );
+
+      // If received amount > expected amount, log for informational purposes
+      if (receivedAmount > expectedAmount) {
+        const overpayment = receivedAmount - expectedAmount;
+        console.log('[HorizonStream] Payment overpaid (informational):', {
+          transactionId: transaction.id,
+          expectedAmount: transaction.amount,
+          receivedAmount: payment.amount,
+          overpayment: overpayment.toFixed(7),
+          from: payment.from,
+          to: payment.to,
+        });
+
+        await securityAlertService.logAlert({
+          type: 'suspicious_payment',
+          severity: 'low',
+          message: `Transaction overpaid by ${overpayment.toFixed(7)} ${payment.asset}`,
+          details: {
+            transactionId: transaction.id,
+            expectedAmount: transaction.amount,
+            receivedAmount: payment.amount,
+            overpayment: overpayment.toFixed(7),
+            from: payment.from,
+            to: payment.to,
+            asset: payment.asset,
+            txHash: payment.txHash,
+          },
+        });
+      }
     }
   }
 
@@ -514,10 +661,15 @@ export class HorizonStreamService {
    * This helps detect anomalies like unexpected high-value payments.
    */
   private async alertOnLargeIncomingTransaction(
-    payment: { from: string; to: string; amount: string; asset: string },
+    payment: { from: string; to: string; amount: string; asset: string; txHash?: string },
     account: string
   ): Promise<void> {
     const amountNum = parseFloat(payment.amount);
+
+    if (isNaN(amountNum)) {
+      console.error('[HorizonStream] Invalid amount in large payment check:', payment.amount);
+      return;
+    }
 
     if (amountNum >= LARGE_PAYMENT_THRESHOLD) {
       const reason = `Unrecognized large payment: no matching pending transaction found for sender ${payment.from}`;
@@ -530,14 +682,31 @@ export class HorizonStreamService {
           amount: payment.amount,
           asset: payment.asset,
           account,
+          txHash: payment.txHash,
           reason,
         }
       );
 
+      const { securityAlertService } = await import('./security-alert.service');
+      await securityAlertService.logAlert({
+        type: 'large_unmatched_payment',
+        severity: 'medium',
+        message: reason,
+        details: {
+          from: payment.from,
+          to: payment.to,
+          amount: payment.amount,
+          asset: payment.asset,
+          account,
+          txHash: payment.txHash,
+          threshold: LARGE_PAYMENT_THRESHOLD,
+        },
+      });
+
       // TODO: Send email alert to admins
       // await emailService.sendAlert({
       //   subject: 'Large Unmatched Payment Detected',
-      //   body: `${reason}\n\nDetails:\nFrom: ${payment.from}\nTo: ${payment.to}\nAmount: ${payment.amount} ${payment.asset}\nAccount: ${account}`,
+      //   body: `${reason}\n\nDetails:\nFrom: ${payment.from}\nTo: ${payment.to}\nAmount: ${payment.amount} ${payment.asset}\nAccount: ${account}\nTx Hash: ${payment.txHash}`,
       // });
     }
   }
