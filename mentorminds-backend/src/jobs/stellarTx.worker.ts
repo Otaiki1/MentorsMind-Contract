@@ -1,7 +1,42 @@
 import { Pool } from 'pg';
-import { UnrecoverableError } from 'bullmq';
+import { Queue, UnrecoverableError } from 'bullmq';
+import { TransactionBuilder, Networks } from 'stellar-sdk';
 
 export { UnrecoverableError };
+
+const NETWORK_PASSPHRASE = process.env.STELLAR_NETWORK_PASSPHRASE ?? Networks.TESTNET;
+
+/**
+ * Derive the Stellar transaction hash from a signed XDR envelope.
+ * This is the canonical deduplication key — the same XDR always produces
+ * the same hash regardless of what paymentId the caller supplies.
+ */
+export function txHashFromXdr(txEnvelopeXdr: string): string {
+  const tx = TransactionBuilder.fromXDR(txEnvelopeXdr, NETWORK_PASSPHRASE);
+  return tx.hash().toString('hex');
+}
+
+/**
+ * Enqueue a signed Stellar transaction for submission.
+ *
+ * Deduplication is keyed on the transaction hash, not the paymentId.
+ * BullMQ will silently drop a job whose jobId already exists in the queue,
+ * so the same XDR can never be submitted twice regardless of paymentId.
+ */
+export async function enqueueStellarTx(
+  queue: Queue,
+  data: { txEnvelopeXdr: string; paymentId?: string },
+  jobId?: string
+): Promise<void> {
+  const txHash = txHashFromXdr(data.txEnvelopeXdr);
+  const resolvedJobId = jobId ?? `stellar-tx:${txHash}`;
+  await queue.add('stellar-tx', data, {
+    jobId: resolvedJobId,
+    // Keep completed/failed jobs long enough for idempotency checks
+    removeOnComplete: { age: 86_400 },
+    removeOnFail: { age: 86_400 },
+  });
+}
 
 /**
  * Stellar protocol-level error codes that are permanent failures.
@@ -37,18 +72,18 @@ export class StellarTxWorker {
     private readonly submitter: StellarTxSubmitter
   ) {}
 
-  async process(paymentId: string, signedXdr: string, knownHash?: string): Promise<void> {
-    // If we already know the hash (from a prior attempt), check Horizon first
-    // to avoid re-submitting a transaction that was already included in a ledger.
-    if (knownHash) {
-      const existing = await this.submitter.getTransaction(knownHash).catch(() => null);
-      if (existing) {
-        await this.pool.query(
-          "UPDATE transactions SET status = 'completed', transaction_hash = $1, updated_at = NOW() WHERE id = $2",
-          [existing.hash, paymentId]
-        );
-        return;
-      }
+  async process(paymentId: string, signedXdr: string): Promise<void> {
+    // Always derive the hash from the XDR and check Horizon first.
+    // This prevents re-submitting a transaction that was already included in a
+    // ledger — even if the job was retried or enqueued with a different paymentId.
+    const txHash = txHashFromXdr(signedXdr);
+    const existing = await this.submitter.getTransaction(txHash).catch(() => null);
+    if (existing) {
+      await this.pool.query(
+        "UPDATE transactions SET status = 'completed', transaction_hash = $1, updated_at = NOW() WHERE id = $2",
+        [existing.hash, paymentId]
+      );
+      return;
     }
 
     try {
