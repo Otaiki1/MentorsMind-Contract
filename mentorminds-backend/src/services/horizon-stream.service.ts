@@ -235,18 +235,6 @@ export class HorizonStreamService {
     }
   }
 
-  buildEventsUrl(cursor: string, accountId?: string): string {
-    const params = new URLSearchParams({
-      type: "contract",
-      cursor,
-    });
-
-    if (accountId) {
-      params.set("account", accountId);
-    }
-
-    return `${HORIZON_URL}/events?${params.toString()}`;
-  }
 
   private getStreamAccounts(): string[] {
     const seen = new Set<string>();
@@ -504,12 +492,14 @@ export class HorizonStreamService {
     amount: string;
     asset: string;
   }, account: string): Promise<void> {
-    // Check if this payment matches a pending transaction
+    // Check if this payment matches a pending transaction.
+    // Use numeric comparison with tolerance to handle Stellar's 7-decimal format
+    // (e.g. "100.0000000") vs DB values with different precision (e.g. "100").
     const transaction = await paymentTrackerService.findPending().then(pending =>
       pending.find(p =>
         p.senderAddress === payment.from &&
         p.receiverAddress === payment.to &&
-        p.amount === payment.amount
+        Math.abs(parseFloat(p.amount) - parseFloat(payment.amount)) < 0.0000001
       )
     );
 
