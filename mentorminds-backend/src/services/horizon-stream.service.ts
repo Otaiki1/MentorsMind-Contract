@@ -235,18 +235,6 @@ export class HorizonStreamService {
     }
   }
 
-  buildEventsUrl(cursor: string, accountId?: string): string {
-    const params = new URLSearchParams({
-      type: "contract",
-      cursor,
-    });
-
-    if (accountId) {
-      params.set("account", accountId);
-    }
-
-    return `${HORIZON_URL}/events?${params.toString()}`;
-  }
 
   private getStreamAccounts(): string[] {
     const seen = new Set<string>();
