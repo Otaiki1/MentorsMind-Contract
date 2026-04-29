@@ -132,7 +132,16 @@ export class StellarAccountService {
 
     try {
       // 3. Fetch recommended fee estimate dynamically
-      const { recommended_fee } = await stellarFeesService.getFeeEstimate(1);
+      const feeEstimate = await stellarFeesService.getFeeEstimate(1);
+      const { recommended_fee } = feeEstimate;
+
+      // Warn when surge pricing is active — consider delaying activation
+      if ((feeEstimate as any).surge_pricing_enabled) {
+        console.warn(
+          `[StellarAccountService] Surge pricing active. Recommended fee: ${recommended_fee} stroops. ` +
+          `Consider delaying wallet activation for user ${userId}.`
+        );
+      }
 
       // 4. Apply a safety cap to the fee to prevent runaway costs
       const finalFee = Math.min(
