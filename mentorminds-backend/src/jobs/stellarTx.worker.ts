@@ -1,4 +1,7 @@
 import { Pool } from 'pg';
+import { UnrecoverableError } from 'bullmq';
+
+export { UnrecoverableError };
 
 /**
  * Stellar protocol-level error codes that are permanent failures.
@@ -21,17 +24,6 @@ const STELLAR_PROTOCOL_ERRORS = new Set([
   'op_too_many_subentries',
   'op_exceeded_work_limit',
 ]);
-
-/**
- * Thrown for Stellar protocol rejections that cannot be resolved by retrying
- * the same envelope. The caller (e.g. BullMQ) should NOT re-queue the job.
- */
-export class UnrecoverableError extends Error {
-  constructor(message: string, public readonly code?: string) {
-    super(message);
-    this.name = 'UnrecoverableError';
-  }
-}
 
 export interface StellarTxSubmitter {
   submit(signedXdr: string): Promise<{ hash: string }>;
@@ -84,8 +76,7 @@ export class StellarTxWorker {
           [paymentId]
         );
         throw new UnrecoverableError(
-          `Stellar protocol rejection for payment ${paymentId}: ${resultCodes.join(', ')}`,
-          resultCodes[0]
+          `Stellar protocol rejection for payment ${paymentId}: ${resultCodes.join(', ')}`
         );
       }
 

@@ -1,4 +1,5 @@
 import { Pool } from 'pg';
+import { UnrecoverableError } from 'bullmq';
 import { StellarTxWorker, StellarTxSubmitter } from '../src/jobs/stellarTx.worker';
 
 function makePool(spy: jest.Mock): Pool {
@@ -12,7 +13,7 @@ describe('StellarTxWorker', () => {
 
   beforeEach(() => {
     querySpy = jest.fn().mockResolvedValue({ rowCount: 1 });
-    submitter = { submit: jest.fn() };
+    submitter = { submit: jest.fn(), getTransaction: jest.fn().mockResolvedValue(null) };
     worker = new StellarTxWorker(makePool(querySpy), submitter);
   });
 
@@ -50,5 +51,24 @@ describe('StellarTxWorker', () => {
     await expect(worker.process('pay-4', 'signed-xdr')).rejects.toThrow();
     const [failSql] = querySpy.mock.calls[0];
     expect(failSql).not.toMatch(/payments/);
+  });
+
+  it('protocol error — throws BullMQ UnrecoverableError so job is not retried', async () => {
+    const horizonError = {
+      response: {
+        data: {
+          extras: {
+            result_codes: { transaction: 'tx_bad_seq' },
+          },
+        },
+      },
+    };
+    (submitter.submit as jest.Mock).mockRejectedValue(horizonError);
+
+    await expect(worker.process('pay-5', 'signed-xdr')).rejects.toBeInstanceOf(UnrecoverableError);
+
+    const [sql, values] = querySpy.mock.calls[0];
+    expect(sql).toContain("status = 'failed'");
+    expect(values).toEqual(['pay-5']);
   });
 });
