@@ -6,6 +6,7 @@ export type EscrowStatus =
   | "released"
   | "disputed"
   | "refunded"
+  | "partial_refund"
   | "resolved";
 
 export interface EscrowRecord {
@@ -17,6 +18,14 @@ export interface EscrowRecord {
   createdAt: Date;
   stellarTxHash: string | null;
   sorobanContractVersion: string | null;
+  mentorPayoutAmount: string | null;
+  learnerRefundAmount: string | null;
+}
+
+export interface TransactionRecord {
+  escrowId: string;
+  type: "mentor_payout" | "refund";
+  amount: string;
 }
 
 export interface EscrowRepository {
@@ -36,7 +45,8 @@ export interface EscrowRepository {
     status?: string
   ): Promise<{ escrows: EscrowRecord[]; total: number }>;
   findById(id: string): Promise<EscrowRecord | null>;
-  updateStatus(id: string, status: EscrowStatus): Promise<EscrowRecord>;
+  updateStatus(id: string, status: EscrowStatus, splits?: { mentorPayoutAmount: string; learnerRefundAmount: string }): Promise<EscrowRecord>;
+  createTransaction(record: TransactionRecord): Promise<void>;
 }
 
 export interface SorobanEscrowService {
@@ -80,9 +90,10 @@ export class EscrowApiService {
     const validTransitions: Record<EscrowStatus, EscrowStatus[]> = {
       pending: ["funded"],
       funded: ["released", "disputed", "refunded"],
-      disputed: ["resolved"],   // refunded and released are intentionally excluded
+      disputed: ["resolved", "partial_refund"],   // partial_refund is a valid dispute resolution
       released: [],
       refunded: [],
+      partial_refund: [],
       resolved: [],
     };
     return validTransitions[currentStatus]?.includes(newStatus) ?? false;
@@ -205,17 +216,69 @@ export class EscrowApiService {
     return updatedEscrow;
   }
 
-  async resolveDispute(escrowId: string): Promise<EscrowRecord> {
+  async resolveDispute(
+    escrowId: string,
+    adminUserId: string,
+    options?: {
+      resolution?: "release_to_mentor" | "refund_to_learner";
+      splitPercentage?: number;
+    }
+  ): Promise<EscrowRecord> {
     const escrow = await this.escrowRepository.findById(escrowId);
     if (!escrow) {
       throw new Error(`Escrow ${escrowId} not found`);
     }
-    if (!EscrowApiService.validateStateTransition(escrow.status, "resolved")) {
+    if (escrow.status !== "disputed") {
       throw new Error(
         `Cannot resolve dispute for escrow in ${escrow.status} status`
       );
     }
-    return this.escrowRepository.updateStatus(escrowId, "resolved");
+
+    // Determine mentor's share percentage (0–100)
+    const splitPct =
+      options?.splitPercentage !== undefined
+        ? options.splitPercentage
+        : options?.resolution === "release_to_mentor"
+        ? 100
+        : 0;
+
+    if (splitPct < 0 || splitPct > 100) {
+      throw new Error("splitPercentage must be between 0 and 100");
+    }
+
+    // A split between 1–99 is a partial refund; 0 or 100 is a full resolution
+    const newStatus: EscrowStatus =
+      splitPct > 0 && splitPct < 100 ? "partial_refund" : "resolved";
+
+    // Calculate split amounts using integer arithmetic to avoid float dust
+    const totalStroops = Math.round(parseFloat(escrow.amount) * 1e7);
+    const mentorStroops = Math.floor((totalStroops * splitPct) / 100);
+    const learnerStroops = totalStroops - mentorStroops;
+    const mentorPayoutAmount = (mentorStroops / 1e7).toFixed(7);
+    const learnerRefundAmount = (learnerStroops / 1e7).toFixed(7);
+
+    const updatedEscrow = await this.escrowRepository.updateStatus(escrowId, newStatus, {
+      mentorPayoutAmount,
+      learnerRefundAmount,
+    });
+
+    // Record both sides of the split as separate transaction entries
+    if (mentorStroops > 0) {
+      await this.escrowRepository.createTransaction({
+        escrowId,
+        type: "mentor_payout",
+        amount: mentorPayoutAmount,
+      });
+    }
+    if (learnerStroops > 0) {
+      await this.escrowRepository.createTransaction({
+        escrowId,
+        type: "refund",
+        amount: learnerRefundAmount,
+      });
+    }
+
+    return updatedEscrow;
   }
 
   async findUnreconciledEscrows(
