@@ -1,41 +1,11 @@
 import { Pool } from 'pg';
-import { Queue, UnrecoverableError } from 'bullmq';
-import { TransactionBuilder, Networks } from 'stellar-sdk';
+import { UnrecoverableError } from 'bullmq';
+import { QUEUE_NAMES } from '../config/queue';
 
 export { UnrecoverableError };
 
-const NETWORK_PASSPHRASE = process.env.STELLAR_NETWORK_PASSPHRASE ?? Networks.TESTNET;
-
-/**
- * Derive the Stellar transaction hash from a signed XDR envelope.
- * This is the canonical deduplication key — the same XDR always produces
- * the same hash regardless of what paymentId the caller supplies.
- */
-export function txHashFromXdr(txEnvelopeXdr: string): string {
-  const tx = TransactionBuilder.fromXDR(txEnvelopeXdr, NETWORK_PASSPHRASE);
-  return tx.hash().toString('hex');
-}
-
-/**
- * Enqueue a signed Stellar transaction for submission.
- *
- * Deduplication is keyed on the transaction hash, not the paymentId.
- * BullMQ will silently drop a job whose jobId already exists in the queue,
- * so the same XDR can never be submitted twice regardless of paymentId.
- */
-export async function enqueueStellarTx(
-  queue: Queue,
-  data: { txEnvelopeXdr: string; paymentId?: string },
-  jobId?: string
-): Promise<void> {
-  const txHash = txHashFromXdr(data.txEnvelopeXdr);
-  const resolvedJobId = jobId ?? `stellar-tx:${txHash}`;
-  await queue.add('stellar-tx', data, {
-    jobId: resolvedJobId,
-    // Keep completed/failed jobs long enough for idempotency checks
-    removeOnComplete: { age: 86_400 },
-    removeOnFail: { age: 86_400 },
-  });
+if (!QUEUE_NAMES.STELLAR_TX) {
+  throw new Error('STELLAR_TX queue name is undefined');
 }
 
 /**
