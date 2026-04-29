@@ -250,6 +250,20 @@ export class StellarSorobanClient {
 }
 
 /**
+ * Extracts the escrow ID from a Soroban contract transaction result.
+ * Returns null if the result shape is unexpected — callers must throw, never fall back.
+ */
+export function extractEscrowIdFromResult(result: unknown): string | null {
+  if (!result || typeof result !== 'object') return null;
+  const r = result as Record<string, unknown>;
+  // Handle common result shapes from Soroban SDK
+  if (typeof r['escrowId'] === 'string' && r['escrowId']) return r['escrowId'];
+  if (typeof r['escrow_id'] === 'string' && r['escrow_id']) return r['escrow_id'];
+  if (typeof r['id'] === 'string' && r['id']) return r['id'];
+  return null;
+}
+
+/**
  * Concrete SorobanEscrowService implementation that validates the amount
  * before passing it to the Soroban contract.
  */
@@ -428,8 +442,16 @@ export class SorobanEscrowServiceImpl implements SorobanEscrowService {
     // const client = new StellarSorobanClient(feesService);
     // await client.verifyNetworkPassphrase();
     // const preparedTx = await prepareCreateEscrowTx({ ... });
-    // const result = await client.invoke(preparedTx);
-    // return { txHash: result.txHash, contractVersion: this.resolvedContractVersion };
+    // const tx = await client.invoke(preparedTx);
+    //
+    // const escrowId = extractEscrowIdFromResult(tx.result);
+    // if (!escrowId) {
+    //   console.error('[SorobanEscrow] create_escrow succeeded but returned no escrow ID', { result: tx.result });
+    //   throw new Error(
+    //     `create_escrow succeeded but returned no escrow ID. Raw result: ${JSON.stringify(tx.result)}`
+    //   );
+    // }
+    // return { txHash: tx.txHash, contractVersion: this.resolvedContractVersion };
 
     throw new Error(
       "SorobanEscrowServiceImpl: contract invocation not yet wired up"
