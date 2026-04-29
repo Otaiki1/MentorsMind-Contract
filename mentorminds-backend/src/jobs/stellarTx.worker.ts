@@ -1,7 +1,12 @@
 import { Pool } from 'pg';
 import { UnrecoverableError } from 'bullmq';
+import { QUEUE_NAMES } from '../config/queue';
 
 export { UnrecoverableError };
+
+if (!QUEUE_NAMES.STELLAR_TX) {
+  throw new Error('STELLAR_TX queue name is undefined');
+}
 
 /**
  * Stellar protocol-level error codes that are permanent failures.
