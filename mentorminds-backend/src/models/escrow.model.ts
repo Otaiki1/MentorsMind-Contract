@@ -1,6 +1,6 @@
 import { Pool } from 'pg';
 
-export type EscrowStatus = 'active' | 'released' | 'disputed' | 'refunded' | 'resolved';
+export type EscrowStatus = 'active' | 'released' | 'disputed' | 'refunded' | 'partial_refund' | 'resolved';
 
 export interface UpdateStatusOptions {
   status: EscrowStatus;
@@ -9,6 +9,8 @@ export interface UpdateStatusOptions {
     dispute_reason?: string;
     resolved_at?: Date;
     released_at?: Date;
+    mentor_payout_amount?: string;
+    learner_refund_amount?: string;
   };
 }
 
@@ -40,6 +42,14 @@ export class EscrowModel {
     if (additionalFields.released_at !== undefined) {
       fields.push(`released_at = $${paramIndex++}`);
       values.push(additionalFields.released_at);
+    }
+    if (additionalFields.mentor_payout_amount !== undefined) {
+      fields.push(`mentor_payout_amount = $${paramIndex++}`);
+      values.push(additionalFields.mentor_payout_amount);
+    }
+    if (additionalFields.learner_refund_amount !== undefined) {
+      fields.push(`learner_refund_amount = $${paramIndex++}`);
+      values.push(additionalFields.learner_refund_amount);
     }
 
     values.push(escrowId);
