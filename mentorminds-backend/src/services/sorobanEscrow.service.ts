@@ -493,6 +493,31 @@ export class SorobanEscrowServiceImpl implements SorobanEscrowService {
     );
   }
 
+  async refund(input: {
+    escrowId: string;
+    refundedBy: string;
+  }): Promise<{ txHash: string }> {
+    if (this.expectedContractVersion && !this.configured) {
+      throw Object.assign(
+        new Error(
+          "Soroban escrow integration disabled due to contract version mismatch"
+        ),
+        { statusCode: 503 }
+      );
+    }
+
+    // TODO: invoke the Soroban contract here
+    // const client = new StellarSorobanClient(feesService);
+    // await client.verifyNetworkPassphrase();
+    // const preparedTx = await prepareRefundTx({ ... });
+    // const result = await client.invoke(preparedTx);
+    // return { txHash: result.txHash };
+
+    throw new Error(
+      "SorobanEscrowServiceImpl: refund not yet wired up"
+    );
+  }
+
   /**
    * Applies the on-chain escrow state to a booking record.
    *
