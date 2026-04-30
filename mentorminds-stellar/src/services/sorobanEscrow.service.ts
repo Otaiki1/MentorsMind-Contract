@@ -33,7 +33,7 @@ export class SorobanEscrowService {
   private contract: Contract;
   private server: rpc.Server;
   private escrowService: EscrowService;
-  private signerKeypair: Keypair;
+  private readonly signerSecret: string;
   private networkPassphrase: string;
 
   constructor(
@@ -45,7 +45,9 @@ export class SorobanEscrowService {
     this.contract = new Contract(contractId);
     this.server = new rpc.Server(rpcUrl);
     this.escrowService = new EscrowService(contractId, rpcUrl);
-    this.signerKeypair = Keypair.fromSecret(signerSecret);
+    // Do not store the keypair object — load it fresh per signing operation
+    // so the secret key bytes are not held in memory for the process lifetime.
+    this.signerSecret = signerSecret;
     this.networkPassphrase = networkPassphrase;
   }
 
@@ -78,7 +80,7 @@ export class SorobanEscrowService {
     }
     // ----------------------------------------------------------------
 
-    const sourceAccount = await this.server.getAccount(this.signerKeypair.publicKey());
+    const sourceAccount = await this.server.getAccount(Keypair.fromSecret(this.signerSecret).publicKey());
 
     const operation = this.contract.call(
       'release_funds',
@@ -94,7 +96,10 @@ export class SorobanEscrowService {
       .setTimeout(30)
       .build();
 
-    transaction.sign(this.signerKeypair);
+    // Load keypair fresh for signing — discarded immediately after use
+    // so the secret key bytes are not held in memory beyond this scope.
+    const keypair = Keypair.fromSecret(this.signerSecret);
+    transaction.sign(keypair);
 
     const sendResponse = await this.server.sendTransaction(transaction);
     if (sendResponse.status !== 'PENDING') {
