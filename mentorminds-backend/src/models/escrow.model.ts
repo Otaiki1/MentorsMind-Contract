@@ -47,4 +47,18 @@ export class EscrowModel {
 
     await this.pool.query(sql, values);
   }
+
+  /**
+   * Returns the total volume and count of finalized escrows.
+   * Finalized statuses are: 'released', 'refunded', 'resolved'.
+   * 'completed' is not a valid EscrowStatus and is intentionally excluded.
+   */
+  async getTotalVolume(): Promise<{ total_volume: string; count: string }> {
+    const FINALIZED_STATUSES: EscrowStatus[] = ['released', 'refunded', 'resolved'];
+    const result = await this.pool.query<{ total_volume: string; count: string }>(
+      `SELECT COALESCE(SUM(amount), 0) AS total_volume, COUNT(*) AS count FROM escrows WHERE status = ANY($1)`,
+      [FINALIZED_STATUSES]
+    );
+    return result.rows[0];
+  }
 }
