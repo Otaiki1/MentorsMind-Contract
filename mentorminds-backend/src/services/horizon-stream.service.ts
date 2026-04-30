@@ -6,8 +6,15 @@ import { getRedisClient } from "./redis.service";
 const CURSOR_KEY_PREFIX = 'mm:horizon:cursor';
 
 const LARGE_PAYMENT_THRESHOLD = parseFloat(
-  process.env.LARGE_PAYMENT_THRESHOLD_XLM ?? "10000"
+  process.env.LARGE_TX_ALERT_THRESHOLD_XLM ??
+  process.env.LARGE_PAYMENT_THRESHOLD_XLM ?? // legacy fallback
+  "1000"
 );
+
+// Rate-limit large-payment alerts: track the last alert time per sender address.
+// Only one alert per unique `from` address per hour to prevent alert storms.
+const ALERT_RATE_LIMIT_MS = 60 * 60 * 1000; // 1 hour
+const lastAlertTimestampByAddress = new Map<string, number>();
 
 const HORIZON_URL =
   process.env.HORIZON_URL ?? "https://horizon-testnet.stellar.org";
@@ -669,6 +676,12 @@ export class HorizonStreamService {
   /**
    * Alert admins about large incoming transactions that don't match any pending transaction.
    * This helps detect anomalies like unexpected high-value payments.
+   *
+   * Fix #377:
+   * - Only called from the unmatched-payment branch (never for matched payments).
+   * - Rate-limited to one alert per unique sender address per hour.
+   * - Threshold configurable via LARGE_TX_ALERT_THRESHOLD_XLM env var (default 1000).
+   * - Alert includes a human-readable reason field.
    */
   private async alertOnLargeIncomingTransaction(
     payment: { from: string; to: string; amount: string; asset: string; txHash?: string },
@@ -682,7 +695,18 @@ export class HorizonStreamService {
     }
 
     if (amountNum >= LARGE_PAYMENT_THRESHOLD) {
-      const reason = `Unrecognized large payment: no matching pending transaction found for sender ${payment.from}`;
+      // Rate-limit: skip if we already alerted for this sender within the last hour.
+      const now = Date.now();
+      const lastAlert = lastAlertTimestampByAddress.get(payment.from) ?? 0;
+      if (now - lastAlert < ALERT_RATE_LIMIT_MS) {
+        console.log(
+          `[HorizonStream] Rate-limiting large-payment alert for sender ${payment.from} (last alert ${Math.round((now - lastAlert) / 1000)}s ago)`
+        );
+        return;
+      }
+      lastAlertTimestampByAddress.set(payment.from, now);
+
+      const reason = `Unrecognized large payment received — no matching pending transaction found for sender ${payment.from}`;
 
       console.warn(
         `[HorizonStream] ALERT: Large unmatched payment detected`,
@@ -710,6 +734,7 @@ export class HorizonStreamService {
           account,
           txHash: payment.txHash,
           threshold: LARGE_PAYMENT_THRESHOLD,
+          reason,
         },
       });
 
