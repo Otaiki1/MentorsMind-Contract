@@ -601,22 +601,50 @@ export class SorobanEscrowServiceImpl implements SorobanEscrowService {
    * Omitting 'pending' means timeout refunds on pending bookings are never
    * reflected in the DB.
    * 
-   * @deprecated Use syncPendingEscrowsOptimized instead
    */
+  private _syncRunning = false;
+
   async syncPendingEscrows(
     bookingRepo: BookingRepository,
     escrowStateResolver: EscrowStateResolver
   ): Promise<void> {
-    const bookings = await bookingRepo.findBookingsWithActiveEscrow([
-      "pending",
-      "confirmed",
-      "completed",
-      "cancelled",
-    ]);
+    // Mutex: skip if a sync cycle is already in progress
+    if (this._syncRunning) {
+      console.warn('[EscrowSync] Skipping sync — previous cycle still running');
+      return;
+    }
+    this._syncRunning = true;
+    const startTime = Date.now();
 
-    for (const booking of bookings) {
-      const state = await escrowStateResolver.getEscrowState(booking.escrowId);
-      await this.applyEscrowStateToBookings(state, booking.id, bookingRepo);
+    try {
+      const bookings = await bookingRepo.findBookingsWithActiveEscrow([
+        "pending",
+        "confirmed",
+        "completed",
+        "cancelled",
+      ]);
+
+      const BATCH_SIZE = 10;
+      for (let i = 0; i < bookings.length; i += BATCH_SIZE) {
+        const batch = bookings.slice(i, i + BATCH_SIZE);
+        await Promise.allSettled(
+          batch.map(async (booking) => {
+            try {
+              const state = await escrowStateResolver.getEscrowState(booking.escrowId);
+              await this.applyEscrowStateToBookings(state, booking.id, bookingRepo);
+            } catch (err) {
+              console.error(`[EscrowSync] Failed to sync booking ${booking.id}:`, err);
+            }
+          })
+        );
+      }
+
+      const duration = Date.now() - startTime;
+      if (duration > 25_000) {
+        console.warn(`[EscrowSync] Sync took ${duration}ms — approaching polling interval`);
+      }
+    } finally {
+      this._syncRunning = false;
     }
   }
 
