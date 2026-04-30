@@ -116,6 +116,7 @@ if (typeof (SorobanRpc as any).assembleTransaction !== 'function') {
 export class StellarSorobanClient {
   private readonly rpcServer: SorobanRpc.Server;
   private readonly networkPassphrase: string;
+  private readonly rpcTimeoutMs: number;
 
   constructor(
     private readonly feesService: Pick<StellarFeesService, "getFeeEstimate">,
@@ -136,6 +137,20 @@ export class StellarSorobanClient {
 
     this.rpcServer = new RpcServerCtor(url, { allowHttp: url.startsWith("http://") });
     this.networkPassphrase = networkType === 'mainnet' ? Networks.PUBLIC : Networks.TESTNET;
+    this.rpcTimeoutMs = parseInt(process.env.SOROBAN_RPC_TIMEOUT_MS || '10000', 10);
+  }
+
+  /** Wraps an RPC promise with a timeout to prevent indefinite hangs. */
+  private withRpcTimeout<T>(promise: Promise<T>, label: string): Promise<T> {
+    return Promise.race([
+      promise,
+      new Promise<never>((_, reject) =>
+        setTimeout(
+          () => reject(new Error(`RPC timeout after ${this.rpcTimeoutMs}ms: ${label}`)),
+          this.rpcTimeoutMs
+        )
+      ),
+    ]);
   }
 
   /**
@@ -150,7 +165,10 @@ export class StellarSorobanClient {
    * Should be called at startup to prevent network mismatch issues.
    */
   async verifyNetworkPassphrase(): Promise<void> {
-    const networkInfo = await this.rpcServer.getNetwork();
+    const networkInfo = await this.withRpcTimeout(
+      this.rpcServer.getNetwork(),
+      'getNetwork'
+    );
     if (networkInfo.passphrase !== this.networkPassphrase) {
       throw new Error(
         `SOROBAN_RPC_URL network passphrase does not match STELLAR_NETWORK configuration. ` +
@@ -177,7 +195,10 @@ export class StellarSorobanClient {
     const startTime = Date.now();
     
     while (Date.now() - startTime < timeoutMs) {
-      const txResponse = await this.rpcServer.getTransaction(txHash);
+      const txResponse = await this.withRpcTimeout(
+        this.rpcServer.getTransaction(txHash),
+        'getTransaction'
+      );
       
       if (txResponse.status === SorobanRpc.Api.GetTransactionStatus.SUCCESS) {
         return txResponse;
@@ -209,7 +230,10 @@ export class StellarSorobanClient {
    */
   async invoke(preparedTx: any): Promise<TransactionResult> {
     // Submit transaction
-    const sendResponse = await this.rpcServer.sendTransaction(preparedTx);
+    const sendResponse = await this.withRpcTimeout(
+      this.rpcServer.sendTransaction(preparedTx),
+      'sendTransaction'
+    );
     
     if (!sendResponse?.hash) {
       throw new Error('Transaction submission failed: no hash returned');
